@@ -460,6 +460,12 @@ impl<M: MemoryProvider, const ALIGN: usize> X64PageTable<'_, M, ALIGN> {
             }
         }
 
+        let start_page =
+            Page::<Size4KiB>::containing_address(pa_to_va(frame_range.start.start_address()));
+        let count =
+            (frame_range.end.start_address() - frame_range.start.start_address()) / Size4KiB::SIZE;
+        flush_tlb_range(start_page, count.truncate());
+
         Ok(pa_to_va(frame_range.start.start_address()).as_mut_ptr())
     }
 
@@ -539,6 +545,8 @@ impl<M: MemoryProvider, const ALIGN: usize> X64PageTable<'_, M, ALIGN> {
             }
         }
 
+        flush_tlb_range(start_page, mapped_count);
+
         Ok(base_va.as_mut_ptr())
     }
 
@@ -558,6 +566,11 @@ impl<M: MemoryProvider, const ALIGN: usize> X64PageTable<'_, M, ALIGN> {
         for page in pages {
             let _ = inner.unmap(page);
         }
+
+        let start = pages.start;
+        let end = pages.end; // inclusive
+        let count = (end.start_address() - start.start_address()) / Size4KiB::SIZE + 1;
+        flush_tlb_range(start, count.truncate());
 
         // Safety: all leaf entries in `pages` have been unmapped above while
         // holding `self.inner`, so any P1/P2/P3 frames that became empty can
