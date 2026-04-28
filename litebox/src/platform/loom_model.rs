@@ -176,35 +176,68 @@ impl RawMutex for LoomRawMutex {
 }
 
 /// A minimal platform for Loom tests of raw synchronization primitives.
-pub struct LoomPlatform;
+pub struct LoomPlatform {
+    current_time: atomic::AtomicU64,
+}
+
+impl LoomPlatform {
+    /// Creates a new Loom platform model.
+    pub fn new() -> Self {
+        Self {
+            current_time: atomic::AtomicU64::new(0),
+        }
+    }
+}
+
+impl Default for LoomPlatform {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl RawMutexProvider for LoomPlatform {
     type RawMutex = LoomRawMutex;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct LoomInstant;
+pub struct LoomInstant {
+    time: u64,
+}
 
 impl Instant for LoomInstant {
-    fn checked_duration_since(&self, _earlier: &Self) -> Option<core::time::Duration> {
-        Some(core::time::Duration::from_secs(0))
+    fn checked_duration_since(&self, earlier: &Self) -> Option<core::time::Duration> {
+        if earlier.time <= self.time {
+            Some(core::time::Duration::from_millis(self.time - earlier.time))
+        } else {
+            None
+        }
     }
 
-    fn checked_add(&self, _duration: core::time::Duration) -> Option<Self> {
-        Some(Self)
+    fn checked_add(&self, duration: core::time::Duration) -> Option<Self> {
+        let duration_millis: u64 = duration.as_millis().try_into().ok()?;
+        Some(Self {
+            time: self.time.checked_add(duration_millis)?,
+        })
     }
 }
 
-pub struct LoomSystemTime;
+pub struct LoomSystemTime {
+    time: u64,
+}
 
 impl SystemTime for LoomSystemTime {
-    const UNIX_EPOCH: Self = Self;
+    const UNIX_EPOCH: Self = Self { time: 0 };
 
-    fn duration_since(
-        &self,
-        _earlier: &Self,
-    ) -> Result<core::time::Duration, core::time::Duration> {
-        Ok(core::time::Duration::from_secs(0))
+    fn duration_since(&self, earlier: &Self) -> Result<core::time::Duration, core::time::Duration> {
+        match self.time.cmp(&earlier.time) {
+            core::cmp::Ordering::Less => {
+                Err(core::time::Duration::from_millis(earlier.time - self.time))
+            }
+            core::cmp::Ordering::Equal => Ok(core::time::Duration::from_millis(0)),
+            core::cmp::Ordering::Greater => {
+                Ok(core::time::Duration::from_millis(self.time - earlier.time))
+            }
+        }
     }
 }
 
@@ -213,11 +246,15 @@ impl TimeProvider for LoomPlatform {
     type SystemTime = LoomSystemTime;
 
     fn now(&self) -> Self::Instant {
-        LoomInstant
+        LoomInstant {
+            time: self.current_time.fetch_add(1, Ordering::SeqCst),
+        }
     }
 
     fn current_time(&self) -> Self::SystemTime {
-        LoomSystemTime
+        LoomSystemTime {
+            time: self.current_time.load(Ordering::SeqCst),
+        }
     }
 }
 
