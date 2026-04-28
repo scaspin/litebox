@@ -22,6 +22,11 @@ use zerocopy::{FromBytes, IntoBytes};
 
 pub use page_mgmt::PageManagementProvider;
 
+#[cfg(not(feature = "loom"))]
+pub use core::sync::atomic::AtomicU32 as RawAtomicU32;
+#[cfg(feature = "loom")]
+pub use loom::sync::atomic::AtomicU32 as RawAtomicU32;
+
 /// A provider of a platform upon which LiteBox can execute.
 ///
 /// Ideally, a [`Provider`] is zero-sized, and only exists to provide access to functionality
@@ -292,10 +297,24 @@ pub trait RawMutexProvider {
 pub trait RawMutex: Send + Sync + 'static {
     /// The initial value for a raw mutex, with an underlying atomic with a
     /// value of zero.
+    #[cfg(not(feature = "loom"))]
     const INIT: Self;
 
+    /// Creates a raw mutex with an underlying atomic value of zero.
+    #[cfg(not(feature = "loom"))]
+    fn new() -> Self
+    where
+        Self: Sized,
+    {
+        Self::INIT
+    }
+
+    /// Creates a raw mutex with an underlying atomic value of zero.
+    #[cfg(feature = "loom")]
+    fn new() -> Self;
+
     /// Returns a reference to the underlying atomic value
-    fn underlying_atomic(&self) -> &core::sync::atomic::AtomicU32;
+    fn underlying_atomic(&self) -> &RawAtomicU32;
 
     /// Wake up `n` threads blocked on on this raw mutex.
     ///

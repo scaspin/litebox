@@ -80,7 +80,7 @@ impl<'a, Platform: RawSyncPrimitivesProvider, T> LoanListEntry<'a, Platform, T> 
             node: Node {
                 ptrs: UnsafeCell::new(ListPointers::new()),
                 data: EntryData {
-                    state: <Platform::RawMutex as RawMutex>::INIT,
+                    state: <Platform::RawMutex as RawMutex>::new(),
                     value,
                 },
             },

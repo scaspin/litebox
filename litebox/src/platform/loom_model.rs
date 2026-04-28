@@ -12,7 +12,10 @@ use core::sync::atomic::Ordering;
 pub use loom::sync::{Arc, atomic};
 use loom::sync::{Condvar, Mutex};
 
-use super::{ImmediatelyWokenUp, UnblockedOrTimedOut};
+use super::{
+    ImmediatelyWokenUp, Instant, RawAtomicU32, RawMutex, RawMutexProvider, SystemTime,
+    TimeProvider, UnblockedOrTimedOut,
+};
 
 /// A Loom model of a futex word and its wait queue.
 ///
@@ -22,7 +25,7 @@ use super::{ImmediatelyWokenUp, UnblockedOrTimedOut};
 /// notifying waiters, so a wake cannot be lost between the value check and the
 /// wait operation.
 pub struct LoomFutex {
-    word: atomic::AtomicU32,
+    word: RawAtomicU32,
     queue: Mutex<WaitQueue>,
     condvar: Condvar,
 }
@@ -126,11 +129,172 @@ impl LoomFutex {
     }
 }
 
+/// A [`RawMutex`] implementation backed by [`LoomFutex`].
+pub struct LoomRawMutex {
+    futex: LoomFutex,
+}
+
+impl LoomRawMutex {
+    /// Creates a new Loom raw mutex.
+    pub fn new() -> Self {
+        Self {
+            futex: LoomFutex::new(0),
+        }
+    }
+}
+
+impl Default for LoomRawMutex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RawMutex for LoomRawMutex {
+    fn new() -> Self {
+        LoomRawMutex::new()
+    }
+
+    fn underlying_atomic(&self) -> &RawAtomicU32 {
+        self.futex.word()
+    }
+
+    fn wake_many(&self, n: usize) -> usize {
+        self.futex.wake_many(n)
+    }
+
+    fn block(&self, val: u32) -> Result<(), ImmediatelyWokenUp> {
+        self.futex.block(val)
+    }
+
+    fn block_or_timeout(
+        &self,
+        val: u32,
+        timeout: core::time::Duration,
+    ) -> Result<UnblockedOrTimedOut, ImmediatelyWokenUp> {
+        self.futex.block_or_timeout(val, timeout)
+    }
+}
+
+/// A minimal platform for Loom tests of raw synchronization primitives.
+pub struct LoomPlatform;
+
+impl RawMutexProvider for LoomPlatform {
+    type RawMutex = LoomRawMutex;
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LoomInstant;
+
+impl Instant for LoomInstant {
+    fn checked_duration_since(&self, _earlier: &Self) -> Option<core::time::Duration> {
+        Some(core::time::Duration::from_secs(0))
+    }
+
+    fn checked_add(&self, _duration: core::time::Duration) -> Option<Self> {
+        Some(Self)
+    }
+}
+
+pub struct LoomSystemTime;
+
+impl SystemTime for LoomSystemTime {
+    const UNIX_EPOCH: Self = Self;
+
+    fn duration_since(
+        &self,
+        _earlier: &Self,
+    ) -> Result<core::time::Duration, core::time::Duration> {
+        Ok(core::time::Duration::from_secs(0))
+    }
+}
+
+impl TimeProvider for LoomPlatform {
+    type Instant = LoomInstant;
+    type SystemTime = LoomSystemTime;
+
+    fn now(&self) -> Self::Instant {
+        LoomInstant
+    }
+
+    fn current_time(&self) -> Self::SystemTime {
+        LoomSystemTime
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use core::sync::atomic::Ordering;
 
     use super::{Arc, LoomFutex};
+    use crate::platform::{ImmediatelyWokenUp, UnblockedOrTimedOut};
+
+    #[test]
+    fn block_returns_immediately_when_word_mismatches() {
+        loom::model(|| {
+            let futex = LoomFutex::new(1);
+
+            match futex.block(0) {
+                Err(ImmediatelyWokenUp) => {}
+                Ok(()) => panic!("futex wait should not block when the word already differs"),
+            }
+        });
+    }
+
+    #[test]
+    fn block_or_timeout_returns_immediately_when_word_mismatches() {
+        loom::model(|| {
+            let futex = LoomFutex::new(1);
+
+            match futex.block_or_timeout(0, core::time::Duration::from_secs(1)) {
+                Err(ImmediatelyWokenUp) => {}
+                Ok(UnblockedOrTimedOut::Unblocked) => {
+                    panic!("futex wait should not consume a wake when the word already differs")
+                }
+                Ok(UnblockedOrTimedOut::TimedOut) => {
+                    panic!("LoomFutex does not model timeout expiration")
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn wake_many_returns_zero_without_waiters() {
+        loom::model(|| {
+            let futex = LoomFutex::new(0);
+
+            assert_eq!(futex.wake_many(1), 0);
+            assert_eq!(futex.wake_all(), 0);
+        });
+    }
+
+    #[test]
+    fn wake_one_does_not_select_the_same_waiter_twice() {
+        loom::model(|| {
+            let futex = LoomFutex::new(0);
+            futex.queue.lock().unwrap().waiters = 1;
+
+            assert!(futex.wake_one());
+            assert!(!futex.wake_one());
+
+            let queue = futex.queue.lock().unwrap();
+            assert_eq!(queue.waiters, 1);
+            assert_eq!(queue.pending_wakeups, 1);
+        });
+    }
+
+    #[test]
+    fn wake_all_selects_all_eligible_waiters() {
+        loom::model(|| {
+            let futex = LoomFutex::new(0);
+            futex.queue.lock().unwrap().waiters = 3;
+
+            assert_eq!(futex.wake_all(), 3);
+
+            let queue = futex.queue.lock().unwrap();
+            assert_eq!(queue.waiters, 3);
+            assert_eq!(queue.pending_wakeups, 3);
+        });
+    }
 
     #[test]
     fn wait_does_not_miss_wake_between_check_and_park() {
