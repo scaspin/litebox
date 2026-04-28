@@ -8,6 +8,8 @@
 //! other crates that implement them upon various types.
 
 pub mod common_providers;
+#[cfg(feature = "loom")]
+pub mod loom_model;
 pub mod page_mgmt;
 pub mod trivial_providers;
 
