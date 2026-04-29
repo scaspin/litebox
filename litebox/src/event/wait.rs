@@ -25,6 +25,11 @@
 use alloc::sync::Arc;
 use core::{marker::PhantomData, sync::atomic::Ordering};
 
+#[cfg(not(feature = "loom"))]
+use core::sync::atomic::fence;
+#[cfg(feature = "loom")]
+use loom::sync::atomic::fence;
+
 use crate::{
     platform::{
         ImmediatelyWokenUp, Instant as _, RawMutex, ThreadProvider, TimeProvider,
@@ -182,7 +187,7 @@ impl<Platform: RawSyncPrimitivesProvider> WaitStateInner<Platform> {
             Err(_) => {
                 // Provide a consistent release fence even if we didn't wake up
                 // the thread.
-                core::sync::atomic::fence(Ordering::Release);
+                fence(Ordering::Release);
             }
         }
     }
@@ -235,7 +240,7 @@ impl<Platform: RawSyncPrimitivesProvider + ThreadProvider> ThreadHandle<Platform
             Err(_) => {
                 // Provide a consistent release fence even if we didn't wake up
                 // the thread.
-                core::sync::atomic::fence(Ordering::Release);
+                fence(Ordering::Release);
             }
         }
     }
@@ -292,7 +297,7 @@ pub trait CheckForInterrupt {
     ///
     /// This is called by [`WaitContext::wait_until`] each time it is about to
     /// block the thread. If this returns `true`, the wait will return with
-    /// [`WaitError::Interrupted`].
+    /// [`WaitError::Interrupted`], which in turn is converted into the wait's error type.
     fn check_for_interrupt(&self) -> bool;
 }
 
@@ -431,10 +436,10 @@ impl<'a, Platform: RawSyncPrimitivesProvider + TimeProvider> WaitContext<'a, Pla
     /// If the deadline has already passed, this returns immediately with
     /// [`WaitError::TimedOut`], even if there is a pending interrupt.
     pub fn sleep(&self) -> WaitError {
-        self.wait_until(|| false).unwrap_err()
+        self.wait_until(|| Ok::<_, WaitError>(false)).unwrap_err()
     }
 
-    /// Waits until `ready` returns `true`.
+    /// Waits until `ready` returns `Ok(true)`.
     ///
     /// `ready` is called once before the thread sleeps and then again each time the
     /// thread is woken up. The caller must arrange for wakeups at the
@@ -451,7 +456,10 @@ impl<'a, Platform: RawSyncPrimitivesProvider + TimeProvider> WaitContext<'a, Pla
     /// [`prepare_to_run_guest`](WaitState::prepare_to_run_guest) was called
     /// without a subsequent call to
     /// [`finish_running_guest`](WaitState::finish_running_guest).
-    pub fn wait_until(&self, mut ready: impl FnMut() -> bool) -> Result<(), WaitError> {
+    pub fn wait_until<E>(&self, mut ready: impl FnMut() -> Result<bool, E>) -> Result<(), E>
+    where
+        E: From<WaitError>,
+    {
         assert_eq!(
             self.waker.0.state_for_assert(),
             ThreadState::RUNNING_IN_HOST
@@ -459,10 +467,10 @@ impl<'a, Platform: RawSyncPrimitivesProvider + TimeProvider> WaitContext<'a, Pla
         let _end_wait = crate::utils::defer(|| self.end_wait());
         loop {
             self.start_wait();
-            if ready() {
+            if ready()? {
                 break Ok(());
             }
-            self.commit_wait()?;
+            self.commit_wait().map_err(E::from)?;
         }
     }
 
