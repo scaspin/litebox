@@ -9,12 +9,15 @@
 
 use core::sync::atomic::Ordering;
 
+use alloc::collections::VecDeque;
+use alloc::vec::Vec;
+use loom::sync::Mutex;
 pub use loom::sync::{Arc, atomic};
-use loom::sync::{Condvar, Mutex};
+use loom::thread;
 
 use super::{
-    ImmediatelyWokenUp, Instant, RawAtomicU32, RawMutex, RawMutexProvider, SystemTime,
-    TimeProvider, UnblockedOrTimedOut,
+    ImmediatelyWokenUp, Instant, RawAtomicU32, RawMutex, RawMutexProvider, RawPointerProvider,
+    SystemTime, TimeProvider, UnblockedOrTimedOut,
 };
 
 /// A Loom model of a futex word and its wait queue.
@@ -27,13 +30,16 @@ use super::{
 pub struct LoomFutex {
     word: RawAtomicU32,
     queue: Mutex<WaitQueue>,
-    condvar: Condvar,
 }
 
 #[derive(Default)]
 struct WaitQueue {
-    waiters: usize,
-    pending_wakeups: usize,
+    waiters: VecDeque<Arc<Waiter>>,
+}
+
+struct Waiter {
+    thread: thread::Thread,
+    woken: atomic::AtomicBool,
 }
 
 impl LoomFutex {
@@ -42,7 +48,6 @@ impl LoomFutex {
         Self {
             word: atomic::AtomicU32::new(value),
             queue: Mutex::new(WaitQueue::default()),
-            condvar: Condvar::new(),
         }
     }
 
@@ -63,12 +68,15 @@ impl LoomFutex {
     /// poisoned.
     pub fn wake_many(&self, n: usize) -> usize {
         let mut queue = self.queue.lock().unwrap();
-        let eligible = queue.waiters - queue.pending_wakeups;
-        let to_wake = eligible.min(n);
-        queue.pending_wakeups += to_wake;
+        let to_wake = queue.waiters.len().min(n);
+        let waiters: Vec<_> = (0..to_wake)
+            .filter_map(|_| queue.waiters.pop_front())
+            .collect();
+        drop(queue);
 
-        for _ in 0..to_wake {
-            self.condvar.notify_one();
+        for waiter in waiters {
+            waiter.woken.store(true, Ordering::Release);
+            waiter.thread.unpark();
         }
 
         to_wake
@@ -95,20 +103,23 @@ impl LoomFutex {
     /// Panics if Loom reports that the modeled wait-queue mutex or condition
     /// variable has been poisoned.
     pub fn block(&self, expected: u32) -> Result<(), ImmediatelyWokenUp> {
+        let waiter = Arc::new(Waiter {
+            thread: thread::current(),
+            woken: atomic::AtomicBool::new(false),
+        });
+
         let mut queue = self.queue.lock().unwrap();
-        if self.word.load(Ordering::Acquire) != expected {
+        let value = self.word.load(Ordering::SeqCst);
+        if value != expected {
             return Err(ImmediatelyWokenUp);
         }
+        queue.waiters.push_back(Arc::clone(&waiter));
+        drop(queue);
 
-        queue.waiters += 1;
-        loop {
-            queue = self.condvar.wait(queue).unwrap();
-            if queue.pending_wakeups > 0 {
-                queue.pending_wakeups -= 1;
-                queue.waiters -= 1;
-                return Ok(());
-            }
+        while !waiter.woken.load(Ordering::Acquire) {
+            thread::park();
         }
+        Ok(())
     }
 
     /// Blocks like [`Self::block`].
@@ -199,6 +210,12 @@ impl RawMutexProvider for LoomPlatform {
     type RawMutex = LoomRawMutex;
 }
 
+impl RawPointerProvider for LoomPlatform {
+    type RawConstPointer<T: zerocopy::FromBytes> = super::trivial_providers::TransparentConstPtr<T>;
+    type RawMutPointer<T: zerocopy::FromBytes + zerocopy::IntoBytes> =
+        super::trivial_providers::TransparentMutPtr<T>;
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct LoomInstant {
     time: u64,
@@ -260,10 +277,25 @@ impl TimeProvider for LoomPlatform {
 
 #[cfg(test)]
 mod tests {
+    extern crate std;
+
     use core::sync::atomic::Ordering;
 
-    use super::{Arc, LoomFutex};
+    use super::{Arc, LoomFutex, Waiter, atomic};
     use crate::platform::{ImmediatelyWokenUp, UnblockedOrTimedOut};
+
+    macro_rules! loom_trace {
+        ($($arg:tt)*) => {{
+            std::eprintln!("[{:?}] {}", loom::thread::current().id(), format_args!($($arg)*));
+        }};
+    }
+
+    fn waiter() -> Arc<Waiter> {
+        Arc::new(Waiter {
+            thread: loom::thread::current(),
+            woken: atomic::AtomicBool::new(false),
+        })
+    }
 
     #[test]
     fn block_returns_immediately_when_word_mismatches() {
@@ -308,14 +340,18 @@ mod tests {
     fn wake_one_does_not_select_the_same_waiter_twice() {
         loom::model(|| {
             let futex = LoomFutex::new(0);
-            futex.queue.lock().unwrap().waiters = 1;
+            let waiter = waiter();
+            futex
+                .queue
+                .lock()
+                .unwrap()
+                .waiters
+                .push_back(Arc::clone(&waiter));
 
             assert!(futex.wake_one());
             assert!(!futex.wake_one());
-
-            let queue = futex.queue.lock().unwrap();
-            assert_eq!(queue.waiters, 1);
-            assert_eq!(queue.pending_wakeups, 1);
+            assert!(waiter.woken.load(Ordering::Acquire));
+            assert!(futex.queue.lock().unwrap().waiters.is_empty());
         });
     }
 
@@ -323,13 +359,21 @@ mod tests {
     fn wake_all_selects_all_eligible_waiters() {
         loom::model(|| {
             let futex = LoomFutex::new(0);
-            futex.queue.lock().unwrap().waiters = 3;
+            let waiters = [waiter(), waiter(), waiter()];
+            futex
+                .queue
+                .lock()
+                .unwrap()
+                .waiters
+                .extend(waiters.iter().map(Arc::clone));
 
             assert_eq!(futex.wake_all(), 3);
-
-            let queue = futex.queue.lock().unwrap();
-            assert_eq!(queue.waiters, 3);
-            assert_eq!(queue.pending_wakeups, 3);
+            assert!(
+                waiters
+                    .iter()
+                    .all(|waiter| waiter.woken.load(Ordering::Acquire))
+            );
+            assert!(futex.queue.lock().unwrap().waiters.is_empty());
         });
     }
 
@@ -341,7 +385,9 @@ mod tests {
             let waiter = {
                 let futex = Arc::clone(&futex);
                 loom::thread::spawn(move || {
-                    let _ = futex.block(0);
+                    for _ in 0..2 {
+                        let _ = futex.block(0);
+                    }
                 })
             };
 
@@ -355,6 +401,54 @@ mod tests {
 
             waiter.join().unwrap();
             waker.join().unwrap();
+        });
+    }
+
+    #[test]
+    fn test_seq_cst_ordering() {
+        loom::model(|| {
+            let first = Arc::new(loom::sync::atomic::AtomicUsize::new(0));
+            let second = Arc::new(loom::sync::atomic::AtomicUsize::new(0));
+            let sum = Arc::new(loom::sync::atomic::AtomicUsize::new(0));
+
+            let writer = {
+                let first_clone = Arc::clone(&first);
+                let second_clone = Arc::clone(&second);
+                let sum_clone = Arc::clone(&sum);
+                loom::thread::spawn(move || {
+                    loom_trace!("writer: first.store(1)");
+                    first_clone.store(1, Ordering::SeqCst);
+                    let second = second_clone.load(Ordering::SeqCst);
+                    loom_trace!("writer: second.load() = {second}");
+                    if second == 1 {
+                        loom_trace!("writer: sum.fetch_add(1)");
+                        sum_clone.fetch_add(1, Ordering::SeqCst);
+                    }
+                })
+            };
+
+            let reader = {
+                let sum_clone = Arc::clone(&sum);
+                loom::thread::spawn(move || {
+                    loom_trace!("reader: second.store(1)");
+                    second.store(1, Ordering::SeqCst);
+                    let first = first.load(Ordering::SeqCst);
+                    loom_trace!("reader: first.load() = {first}");
+                    if first == 1 {
+                        loom_trace!("reader: sum.fetch_add(1)");
+                        sum_clone.fetch_add(1, Ordering::SeqCst);
+                    }
+                })
+            };
+
+            writer.join().unwrap();
+            reader.join().unwrap();
+
+            let sum = sum.load(Ordering::SeqCst);
+            loom_trace!("main: sum.load() = {sum}");
+            // `sum` could be zero because SeqCst does not guarantee that one thread will see the
+            // other's write even if the write happens first in wall-clock time.
+            assert!(sum == 0 || sum == 1 || sum == 2);
         });
     }
 }
