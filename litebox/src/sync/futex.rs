@@ -628,17 +628,7 @@ mod loom_tests {
             // alignment check above rejects invalid addresses for this model.
             let value = unsafe { (*ptr).load(Ordering::SeqCst) };
             let bytes = value.to_ne_bytes();
-            let mut output = core::mem::MaybeUninit::<T>::uninit();
-            // SAFETY: this branch only handles `T` with the same size as `u32`, and
-            // `FromBytes` guarantees any byte pattern is valid for `T`.
-            unsafe {
-                core::ptr::copy_nonoverlapping(
-                    bytes.as_ptr(),
-                    output.as_mut_ptr().cast::<u8>(),
-                    bytes.len(),
-                );
-                Some(output.assume_init())
-            }
+            T::read_from_bytes(&bytes).ok()
         } else {
             let ptr = transparent_const_ptr(ptr_repr)?;
             ptr.read_at_offset(count)
