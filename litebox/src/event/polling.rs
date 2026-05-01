@@ -3,10 +3,13 @@
 
 //! Polling-related functionality
 
-use core::sync::atomic::AtomicBool;
-
 use alloc::sync::{Arc, Weak};
 use thiserror::Error;
+
+#[cfg(not(feature = "loom"))]
+use core::sync::atomic::{AtomicBool, Ordering};
+#[cfg(feature = "loom")]
+use loom::sync::atomic::{AtomicBool, Ordering};
 
 use super::{
     Events,
@@ -36,6 +39,12 @@ pub enum TryOpError<E> {
     Other(E),
 }
 
+impl<E> From<WaitError> for TryOpError<E> {
+    fn from(err: WaitError) -> Self {
+        Self::WaitError(err)
+    }
+}
+
 impl<Platform: RawSyncPrimitivesProvider + TimeProvider> WaitContext<'_, Platform> {
     /// Run `try_op` until it returns a non-`TryAgain` result, waiting after
     /// each `TryAgain`.
@@ -62,20 +71,31 @@ impl<Platform: RawSyncPrimitivesProvider + TimeProvider> WaitContext<'_, Platfor
             ret => return ret,
         }
         let observer = Arc::new(PolleeObserver::new(self.waker().clone()));
-        // FUTURE: have `register_observer` return the current ready events so
-        // that we can skip calling `try_op` again if we are not yet ready.
-        register_observer(
-            Arc::downgrade(&observer) as _,
-            events | Events::ALWAYS_POLLED,
-        )
-        .map_err(TryOpError::Other)?;
+        let mut register_observer = Some(register_observer);
         loop {
-            match try_op() {
-                Err(TryOpError::TryAgain) => {}
-                ret => return ret,
+            let mut result = None;
+            self.wait_until::<TryOpError<E>>(|| {
+                if let Some(register_observer) = register_observer.take() {
+                    // Register after publishing the wait state so a notifier
+                    // that observes this waiter cannot miss the wake.
+                    register_observer(
+                        Arc::downgrade(&observer) as _,
+                        events | Events::ALWAYS_POLLED,
+                    )
+                    .map_err(TryOpError::Other)?;
+                }
+
+                match try_op() {
+                    Err(TryOpError::TryAgain) => Ok(observer.is_ready()),
+                    ret => {
+                        result = Some(ret);
+                        Ok(true)
+                    }
+                }
+            })?;
+            if let Some(result) = result {
+                return result;
             }
-            self.wait_until(|| Ok::<_, WaitError>(observer.is_ready()))
-                .map_err(TryOpError::WaitError)?;
             // Reset the observer before calling [`try_op`] again so that we
             // don't miss a wakeup.
             observer.reset();
@@ -156,19 +176,97 @@ impl<Platform: RawSyncPrimitivesProvider> PolleeObserver<Platform> {
     }
 
     fn reset(&self) {
-        self.ready
-            .store(false, core::sync::atomic::Ordering::SeqCst);
+        self.ready.store(false, Ordering::SeqCst);
     }
 
     fn is_ready(&self) -> bool {
-        self.ready.load(core::sync::atomic::Ordering::SeqCst)
+        self.ready.load(Ordering::SeqCst)
     }
 }
 
 impl<Platform: RawSyncPrimitivesProvider> Observer<Events> for PolleeObserver<Platform> {
     fn on_events(&self, _events: &Events) {
-        self.ready
-            .store(true, core::sync::atomic::Ordering::Release);
+        self.ready.store(true, Ordering::Release);
         self.waker.wake();
+    }
+}
+
+#[cfg(all(test, feature = "loom"))]
+mod loom_tests {
+    use alloc::boxed::Box;
+
+    use super::{Pollee, TryOpError};
+    use crate::event::{Events, wait::WaitState};
+    use crate::platform::loom_model::{Arc, LoomPlatform, atomic};
+
+    fn model(f: impl Fn() + Send + Sync + 'static) {
+        let mut builder = loom::model::Builder::new();
+        builder.preemption_bound = Some(1);
+        builder.check(f);
+    }
+
+    fn platform() -> &'static LoomPlatform {
+        Box::leak(Box::new(LoomPlatform::new()))
+    }
+
+    #[test]
+    fn wait_does_not_miss_notification() {
+        model(|| {
+            let pollee = Arc::new(Pollee::<LoomPlatform>::new());
+            let ready = Arc::new(loom::sync::Mutex::new(false));
+            let registered = Arc::new(atomic::AtomicBool::new(false));
+
+            let waiter = {
+                let pollee = Arc::clone(&pollee);
+                let ready = Arc::clone(&ready);
+                let registered = Arc::clone(&registered);
+                loom::thread::spawn(move || {
+                    let wait_state = WaitState::new(platform());
+                    wait_state.context().wait_on_events(
+                        false,
+                        Events::IN,
+                        |observer, filter| {
+                            pollee.register_observer(observer, filter);
+                            registered.store(true, atomic::Ordering::SeqCst);
+                            Ok(())
+                        },
+                        || {
+                            if *ready.lock().unwrap() {
+                                Ok(())
+                            } else {
+                                Err(TryOpError::<()>::TryAgain)
+                            }
+                        },
+                    )
+                })
+            };
+
+            let notifier = loom::thread::spawn(move || {
+                while !registered.load(atomic::Ordering::SeqCst) {
+                    loom::thread::yield_now();
+                }
+                *ready.lock().unwrap() = true;
+                pollee.notify_observers(Events::IN);
+            });
+
+            waiter.join().unwrap().unwrap();
+            notifier.join().unwrap();
+        });
+    }
+
+    #[test]
+    fn nonblock_does_not_register_observer() {
+        model(|| {
+            let pollee = Pollee::<LoomPlatform>::new();
+            let wait_state = WaitState::new(platform());
+
+            let result: Result<(), TryOpError<()>> =
+                pollee.wait(&wait_state.context(), true, Events::IN, || {
+                    Err(TryOpError::<()>::TryAgain)
+                });
+
+            assert!(matches!(result, Err(TryOpError::TryAgain)));
+            pollee.notify_observers(Events::IN);
+        });
     }
 }

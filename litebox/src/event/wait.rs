@@ -115,6 +115,11 @@ impl<Platform: RawSyncPrimitivesProvider> WaitState<Platform> {
         }
     }
 
+    #[cfg(all(test, feature = "loom"))]
+    pub(crate) fn is_running_in_host_for_test(&self) -> bool {
+        self.waker.0.state_for_assert() == ThreadState::RUNNING_IN_HOST
+    }
+
     /// Sets the wait state so that [`ThreadHandle::interrupt`] will interrupt
     /// the guest execution, then calls `f` to see if the guest is still ready
     /// to run.
@@ -387,9 +392,19 @@ impl<'a, Platform: RawSyncPrimitivesProvider + TimeProvider> WaitContext<'a, Pla
 
     /// Returns the thread to the running state after a wait.
     fn end_wait(&self) {
-        self.waker
-            .0
-            .set_state(ThreadState::RUNNING_IN_HOST, Ordering::Relaxed);
+        let result = self.waker.0.condvar.underlying_atomic().fetch_update(
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+            |state| match ThreadState(state) {
+                ThreadState::RUNNING_IN_HOST => None,
+                ThreadState::WAITING | ThreadState::WOKEN => Some(ThreadState::RUNNING_IN_HOST.0),
+                state => unreachable!("{state:?}"),
+            },
+        );
+        match result.map(ThreadState).map_err(ThreadState) {
+            Ok(ThreadState::WAITING | ThreadState::WOKEN) | Err(ThreadState::RUNNING_IN_HOST) => {}
+            Ok(state) | Err(state) => unreachable!("{state:?}"),
+        }
         self.waker.0.platform.update_waker(None);
     }
 

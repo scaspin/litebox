@@ -710,7 +710,10 @@ mod loom_tests {
                 let futex_word = Arc::clone(&futex_word);
                 loom::thread::spawn(move || {
                     let wait_state = WaitState::new(platform());
-                    futex_manager.wait(&wait_state.context(), futex_addr(&futex_word), 0, None)
+                    let result =
+                        futex_manager.wait(&wait_state.context(), futex_addr(&futex_word), 0, None);
+                    assert!(wait_state.is_running_in_host_for_test());
+                    result
                 })
             };
 
