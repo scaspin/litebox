@@ -418,6 +418,8 @@ mod tests {
                 loom::thread::spawn(move || {
                     loom_trace!("writer: first.store(1)");
                     first_clone.store(1, Ordering::SeqCst);
+                    // loom does not support SeqCst for load/store: see https://github.com/tokio-rs/loom/issues/180
+                    loom::sync::atomic::fence(Ordering::SeqCst);
                     let second = second_clone.load(Ordering::SeqCst);
                     loom_trace!("writer: second.load() = {second}");
                     if second == 1 {
@@ -432,6 +434,7 @@ mod tests {
                 loom::thread::spawn(move || {
                     loom_trace!("reader: second.store(1)");
                     second.store(1, Ordering::SeqCst);
+                    loom::sync::atomic::fence(Ordering::SeqCst);
                     let first = first.load(Ordering::SeqCst);
                     loom_trace!("reader: first.load() = {first}");
                     if first == 1 {
@@ -446,9 +449,40 @@ mod tests {
 
             let sum = sum.load(Ordering::SeqCst);
             loom_trace!("main: sum.load() = {sum}");
-            // `sum` could be zero because SeqCst does not guarantee that one thread will see the
-            // other's write even if the write happens first in wall-clock time.
-            assert!(sum == 0 || sum == 1 || sum == 2);
+            assert!(sum == 1 || sum == 2);
+        });
+    }
+
+    #[test]
+    fn test_fetch_update() {
+        loom::model(|| {
+            let atomic = Arc::new(loom::sync::atomic::AtomicUsize::new(0));
+
+            let updater = {
+                let atomic = Arc::clone(&atomic);
+                loom::thread::spawn(move || {
+                    loom::sync::atomic::fence(Ordering::SeqCst);
+                    let result = atomic.fetch_update(Ordering::Release, Ordering::Acquire, |x| {
+                        if x == 0 { Some(2) } else { None }
+                    });
+                    loom_trace!("updater: fetch_update() = {result:?}");
+                })
+            };
+
+            let writer = {
+                let atomic = Arc::clone(&atomic);
+                loom::thread::spawn(move || {
+                    let val = atomic.swap(1, Ordering::Relaxed);
+                    loom_trace!("writer: atomic.swap(1) = {val:?}");
+                })
+            };
+
+            updater.join().unwrap();
+            writer.join().unwrap();
+
+            let val = atomic.load(Ordering::Relaxed);
+            loom_trace!("main: atomic.load() = {val:?}");
+            assert_eq!(val, 1);
         });
     }
 }

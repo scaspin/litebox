@@ -142,6 +142,8 @@ impl<Platform: RawSyncPrimitivesProvider> WaitState<Platform> {
         self.waker
             .0
             .set_state(ThreadState::RUNNING_IN_GUEST, Ordering::SeqCst);
+        #[cfg(feature = "loom")]
+        loom::sync::atomic::fence(Ordering::SeqCst);
         let ready_to_run_guest = f();
         if !ready_to_run_guest {
             self.waker
@@ -171,6 +173,8 @@ impl<Platform: RawSyncPrimitivesProvider> WaitState<Platform> {
 impl<Platform: RawSyncPrimitivesProvider> WaitStateInner<Platform> {
     /// Wakes up the thread if it is waiting (but not if it is running in the guest).
     fn wake(&self) {
+        #[cfg(feature = "loom")]
+        loom::sync::atomic::fence(Ordering::SeqCst);
         let condvar = &self.condvar;
         let v = condvar.underlying_atomic().fetch_update(
             Ordering::Release,
@@ -202,9 +206,13 @@ impl<Platform: RawSyncPrimitivesProvider> WaitStateInner<Platform> {
     }
 
     fn set_state(&self, new_state: ThreadState, ordering: Ordering) {
+        #[cfg(not(feature = "loom"))]
         self.condvar
             .underlying_atomic()
             .store(new_state.0, ordering);
+        // loom does not support SeqCst for load/store: see https://github.com/tokio-rs/loom/issues/180
+        #[cfg(feature = "loom")]
+        let _ = self.condvar.underlying_atomic().swap(new_state.0, ordering);
     }
 }
 
@@ -388,23 +396,15 @@ impl<'a, Platform: RawSyncPrimitivesProvider + TimeProvider> WaitContext<'a, Pla
         self.waker
             .0
             .set_state(ThreadState::WAITING, Ordering::SeqCst);
+        #[cfg(feature = "loom")]
+        loom::sync::atomic::fence(Ordering::SeqCst);
     }
 
     /// Returns the thread to the running state after a wait.
     fn end_wait(&self) {
-        let result = self.waker.0.condvar.underlying_atomic().fetch_update(
-            Ordering::SeqCst,
-            Ordering::SeqCst,
-            |state| match ThreadState(state) {
-                ThreadState::RUNNING_IN_HOST => None,
-                ThreadState::WAITING | ThreadState::WOKEN => Some(ThreadState::RUNNING_IN_HOST.0),
-                state => unreachable!("{state:?}"),
-            },
-        );
-        match result.map(ThreadState).map_err(ThreadState) {
-            Ok(ThreadState::WAITING | ThreadState::WOKEN) | Err(ThreadState::RUNNING_IN_HOST) => {}
-            Ok(state) | Err(state) => unreachable!("{state:?}"),
-        }
+        self.waker
+            .0
+            .set_state(ThreadState::RUNNING_IN_HOST, Ordering::Relaxed);
         self.waker.0.platform.update_waker(None);
     }
 
@@ -451,10 +451,10 @@ impl<'a, Platform: RawSyncPrimitivesProvider + TimeProvider> WaitContext<'a, Pla
     /// If the deadline has already passed, this returns immediately with
     /// [`WaitError::TimedOut`], even if there is a pending interrupt.
     pub fn sleep(&self) -> WaitError {
-        self.wait_until(|| Ok::<_, WaitError>(false)).unwrap_err()
+        self.wait_until(|| false).unwrap_err()
     }
 
-    /// Waits until `ready` returns `Ok(true)`.
+    /// Waits until `ready` returns `true`.
     ///
     /// `ready` is called once before the thread sleeps and then again each time the
     /// thread is woken up. The caller must arrange for wakeups at the
@@ -471,10 +471,7 @@ impl<'a, Platform: RawSyncPrimitivesProvider + TimeProvider> WaitContext<'a, Pla
     /// [`prepare_to_run_guest`](WaitState::prepare_to_run_guest) was called
     /// without a subsequent call to
     /// [`finish_running_guest`](WaitState::finish_running_guest).
-    pub fn wait_until<E>(&self, mut ready: impl FnMut() -> Result<bool, E>) -> Result<(), E>
-    where
-        E: From<WaitError>,
-    {
+    pub fn wait_until(&self, mut ready: impl FnMut() -> bool) -> Result<(), WaitError> {
         assert_eq!(
             self.waker.0.state_for_assert(),
             ThreadState::RUNNING_IN_HOST
@@ -482,10 +479,10 @@ impl<'a, Platform: RawSyncPrimitivesProvider + TimeProvider> WaitContext<'a, Pla
         let _end_wait = crate::utils::defer(|| self.end_wait());
         loop {
             self.start_wait();
-            if ready()? {
+            if ready() {
                 break Ok(());
             }
-            self.commit_wait().map_err(E::from)?;
+            self.commit_wait()?;
         }
     }
 

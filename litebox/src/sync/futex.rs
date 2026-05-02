@@ -108,28 +108,23 @@ impl<Platform: RawSyncPrimitivesProvider + RawPointerProvider + TimeProvider>
             bitset,
             done: AtomicBool::new(false),
         },));
-        let mut inserted = false;
+
+        // Insert into the bucket's list. It will be removed when woken or the
+        // entry goes out of scope.
+        entry.as_mut().insert(bucket);
+
+        // Check the value once. Do this only after inserting into the
+        // list so that we don't miss a wakeup.
+        let value = futex_addr.read_at_offset(0).ok_or(FutexError::Fault)?;
+        if value != expected_value {
+            return Err(FutexError::ImmediatelyWokenBecauseValueMismatch);
+        }
 
         // Only return when woken--don't reevaluate the futex word. This
         // ensures that the rate control mechanisms provided by the futex
         // interface are effective.
-        cx.wait_until(|| {
-            if !inserted {
-                // Insert into the bucket's list. It will be removed when woken
-                // or the entry goes out of scope.
-                entry.as_mut().insert(bucket);
-                inserted = true;
-
-                // Check the value once. Do this only after inserting into the
-                // list so that we don't miss a wakeup.
-                let value = futex_addr.read_at_offset(0).ok_or(FutexError::Fault)?;
-                if value != expected_value {
-                    return Err(FutexError::ImmediatelyWokenBecauseValueMismatch);
-                }
-            }
-
-            Ok(entry.get().done.load(Ordering::Acquire))
-        })
+        cx.wait_until(|| entry.get().done.load(Ordering::Acquire))
+            .map_err(FutexError::WaitError)
     }
 
     /// Wakes waiters on the given futex word.
@@ -192,12 +187,6 @@ pub enum FutexError {
     WaitError(WaitError),
     #[error("fault reading futex word")]
     Fault,
-}
-
-impl From<WaitError> for FutexError {
-    fn from(err: WaitError) -> Self {
-        Self::WaitError(err)
-    }
 }
 
 #[cfg(all(test, not(feature = "loom")))]

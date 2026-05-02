@@ -39,12 +39,6 @@ pub enum TryOpError<E> {
     Other(E),
 }
 
-impl<E> From<WaitError> for TryOpError<E> {
-    fn from(err: WaitError) -> Self {
-        Self::WaitError(err)
-    }
-}
-
 impl<Platform: RawSyncPrimitivesProvider + TimeProvider> WaitContext<'_, Platform> {
     /// Run `try_op` until it returns a non-`TryAgain` result, waiting after
     /// each `TryAgain`.
@@ -71,30 +65,21 @@ impl<Platform: RawSyncPrimitivesProvider + TimeProvider> WaitContext<'_, Platfor
             ret => return ret,
         }
         let observer = Arc::new(PolleeObserver::new(self.waker().clone()));
-        let mut register_observer = Some(register_observer);
+        // FUTURE: have `register_observer` return the current ready events so
+        // that we can skip calling `try_op` again if we are not yet ready.
+        register_observer(
+            Arc::downgrade(&observer) as _,
+            events | Events::ALWAYS_POLLED,
+        )
+        .map_err(TryOpError::Other)?;
         loop {
-            let mut result = None;
-            self.wait_until::<TryOpError<E>>(|| {
-                if let Some(register_observer) = register_observer.take() {
-                    // Register after publishing the wait state so a notifier
-                    // that observes this waiter cannot miss the wake.
-                    register_observer(
-                        Arc::downgrade(&observer) as _,
-                        events | Events::ALWAYS_POLLED,
-                    )
-                    .map_err(TryOpError::Other)?;
-                }
-
-                match try_op() {
-                    Err(TryOpError::TryAgain) => Ok(observer.is_ready()),
-                    ret => {
-                        result = Some(ret);
-                        Ok(true)
-                    }
-                }
-            })?;
-            if let Some(result) = result {
-                return result;
+            match try_op() {
+                Err(TryOpError::TryAgain) => {}
+                ret => return ret,
+            }
+            match self.wait_until(|| observer.is_ready()) {
+                Ok(()) => {}
+                Err(err) => return Err(TryOpError::WaitError(err)),
             }
             // Reset the observer before calling [`try_op`] again so that we
             // don't miss a wakeup.
