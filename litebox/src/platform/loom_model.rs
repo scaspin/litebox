@@ -461,7 +461,6 @@ mod tests {
             let updater = {
                 let atomic = Arc::clone(&atomic);
                 loom::thread::spawn(move || {
-                    loom::sync::atomic::fence(Ordering::SeqCst);
                     let result = atomic.fetch_update(Ordering::Release, Ordering::Acquire, |x| {
                         if x == 0 { Some(2) } else { None }
                     });
@@ -472,6 +471,9 @@ mod tests {
             let writer = {
                 let atomic = Arc::clone(&atomic);
                 loom::thread::spawn(move || {
+                    // `store` would fail the test while `swap` works.
+                    // Might relate to https://github.com/tokio-rs/loom/issues/254
+                    // atomic.store(1, Ordering::Relaxed);
                     let val = atomic.swap(1, Ordering::Relaxed);
                     loom_trace!("writer: atomic.swap(1) = {val:?}");
                 })

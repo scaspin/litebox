@@ -171,7 +171,9 @@ impl<Platform: RawSyncPrimitivesProvider> PolleeObserver<Platform> {
 
 impl<Platform: RawSyncPrimitivesProvider> Observer<Events> for PolleeObserver<Platform> {
     fn on_events(&self, _events: &Events) {
-        self.ready.store(true, Ordering::Release);
+        self.ready.store(true, Ordering::SeqCst);
+        #[cfg(feature = "loom")]
+        loom::sync::atomic::fence(Ordering::SeqCst);
         self.waker.wake();
     }
 }

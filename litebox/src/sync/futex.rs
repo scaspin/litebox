@@ -169,7 +169,9 @@ impl<Platform: RawSyncPrimitivesProvider + RawPointerProvider + TimeProvider>
         // Wake the waiters outside the `extract_if` closure to minimize the list's lock hold
         // time.
         for entry in entries {
-            entry.done.store(true, Ordering::Relaxed);
+            entry.done.store(true, Ordering::SeqCst);
+            #[cfg(feature = "loom")]
+            loom::sync::atomic::fence(Ordering::SeqCst);
             entry.waker.wake();
         }
         Ok(woken)

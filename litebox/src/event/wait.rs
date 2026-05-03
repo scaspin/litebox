@@ -142,6 +142,7 @@ impl<Platform: RawSyncPrimitivesProvider> WaitState<Platform> {
         self.waker
             .0
             .set_state(ThreadState::RUNNING_IN_GUEST, Ordering::SeqCst);
+        // loom does not support SeqCst for load/store: see https://github.com/tokio-rs/loom/issues/180
         #[cfg(feature = "loom")]
         loom::sync::atomic::fence(Ordering::SeqCst);
         let ready_to_run_guest = f();
@@ -173,8 +174,6 @@ impl<Platform: RawSyncPrimitivesProvider> WaitState<Platform> {
 impl<Platform: RawSyncPrimitivesProvider> WaitStateInner<Platform> {
     /// Wakes up the thread if it is waiting (but not if it is running in the guest).
     fn wake(&self) {
-        #[cfg(feature = "loom")]
-        loom::sync::atomic::fence(Ordering::SeqCst);
         let condvar = &self.condvar;
         let v = condvar.underlying_atomic().fetch_update(
             Ordering::Release,
@@ -210,7 +209,7 @@ impl<Platform: RawSyncPrimitivesProvider> WaitStateInner<Platform> {
         self.condvar
             .underlying_atomic()
             .store(new_state.0, ordering);
-        // loom does not support SeqCst for load/store: see https://github.com/tokio-rs/loom/issues/180
+        // Potential issue with loom: see test [`platform::loom_model::tests::test_seq_cst_ordering`]
         #[cfg(feature = "loom")]
         let _ = self.condvar.underlying_atomic().swap(new_state.0, ordering);
     }
@@ -396,6 +395,7 @@ impl<'a, Platform: RawSyncPrimitivesProvider + TimeProvider> WaitContext<'a, Pla
         self.waker
             .0
             .set_state(ThreadState::WAITING, Ordering::SeqCst);
+        // loom does not support SeqCst for load/store: see https://github.com/tokio-rs/loom/issues/180
         #[cfg(feature = "loom")]
         loom::sync::atomic::fence(Ordering::SeqCst);
     }
