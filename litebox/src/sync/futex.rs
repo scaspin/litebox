@@ -382,7 +382,7 @@ mod loom_tests {
     use crate::platform::loom_model::{Arc, LoomPlatform, LoomRawMutex};
     use crate::platform::{RawConstPointer, RawMutPointer, RawMutexProvider, RawPointerProvider};
     use crate::platform::{TimeProvider, trivial_providers};
-    use loom::sync::atomic::{AtomicU32, Ordering};
+    use loom::sync::atomic::{AtomicU32, Ordering, fence};
     use zerocopy::{FromBytes, IntoBytes};
 
     fn model(f: impl Fn() + Send + Sync + 'static) {
@@ -711,6 +711,7 @@ mod loom_tests {
             let waker = loom::thread::spawn(move || {
                 let addr = futex_addr(&futex_word);
                 futex_word.store(1, Ordering::SeqCst);
+                fence(Ordering::SeqCst);
                 let woken = futex_manager
                     .wake(addr, NonZeroU32::new(1).unwrap(), None)
                     .unwrap();

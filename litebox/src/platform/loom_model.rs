@@ -487,4 +487,50 @@ mod tests {
             assert_eq!(val, 1);
         });
     }
+
+    /// Minimal repro of a loom modeling bug: a thread's `Relaxed` load does
+    /// not always observe its own immediately-preceding `Relaxed` store to the
+    /// same atomic when another thread's RMW has interleaved between two
+    /// earlier same-thread writes.
+    ///
+    /// Schedule explored by loom:
+    /// - T1: store(1, SeqCst); fence(SeqCst);
+    /// - T2: compare_exchange(1, 2, Release, Relaxed);
+    /// - T1: store(0, Relaxed);
+    /// - T1: load(Relaxed);
+    ///
+    /// See https://github.com/tokio-rs/loom/issues/389 for more detail.
+    #[test]
+    fn relaxed_load_does_not_observe_own_relaxed_store() {
+        loom::model(|| {
+            let v = Arc::new(atomic::AtomicU32::new(0));
+
+            let t2 = {
+                let v = Arc::clone(&v);
+                loom::thread::spawn(move || {
+                    loom_trace!("T2: compare_exchange(1, 2)");
+                    let old = v.compare_exchange(1, 2, Ordering::Release, Ordering::Relaxed);
+                    loom_trace!("T2: compare_exchange returned {old:?}");
+                })
+            };
+
+            v.store(1, Ordering::SeqCst);
+            loom::sync::atomic::fence(Ordering::SeqCst);
+            loom::thread::yield_now();
+
+            // See https://github.com/tokio-rs/loom/issues/389
+            // v.store(0, Ordering::Relaxed);
+            let _ = v.swap(0, Ordering::Relaxed);
+            let observed = v.load(Ordering::Relaxed);
+            loom_trace!("T1: final load = {observed}");
+
+            t2.join().unwrap();
+
+            assert_eq!(
+                observed, 0,
+                "T1's Relaxed load must observe its own preceding Relaxed store \
+                 of 0 (CoWR coherence); loom #180-style modeling artifact"
+            );
+        });
+    }
 }

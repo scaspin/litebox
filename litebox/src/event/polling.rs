@@ -165,7 +165,7 @@ impl<Platform: RawSyncPrimitivesProvider> PolleeObserver<Platform> {
     }
 
     fn is_ready(&self) -> bool {
-        self.ready.load(Ordering::SeqCst)
+        self.ready.load(Ordering::Acquire)
     }
 }
 

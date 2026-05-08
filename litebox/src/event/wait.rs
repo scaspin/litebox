@@ -209,7 +209,7 @@ impl<Platform: RawSyncPrimitivesProvider> WaitStateInner<Platform> {
         self.condvar
             .underlying_atomic()
             .store(new_state.0, ordering);
-        // Potential issue with loom: see test [`platform::loom_model::tests::test_seq_cst_ordering`]
+        // See test `relaxed_load_does_not_observe_own_relaxed_store`
         #[cfg(feature = "loom")]
         let _ = self.condvar.underlying_atomic().swap(new_state.0, ordering);
     }
