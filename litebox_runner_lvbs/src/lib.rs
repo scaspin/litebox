@@ -725,6 +725,8 @@ fn open_session_new_instance(
     client_identity: Option<litebox_common_optee::TeeIdentity>,
     ta_req_info: &litebox_shim_optee::msg_handler::TaRequestInfo<PAGE_SIZE>,
 ) -> Result<(), OpteeSmcReturnCode> {
+    let ta_bin = find_ta_binary(ta_uuid).ok_or(OpteeSmcReturnCode::ENotAvail)?;
+
     // Create and switch to new page table
     let task_pt_id = create_task_page_table()?;
 
@@ -756,7 +758,7 @@ fn open_session_new_instance(
         shim.load_ldelf(
             LDELF_BINARY,
             ta_uuid,
-            Some(TA_BINARY),
+            Some(ta_bin),
             client_identity,
             runner_session_id,
         )
@@ -1314,6 +1316,22 @@ fn write_rpc_args_to_normal_world(
 // use include_bytes! to include ldelf and (KMPP) TA binaries
 const LDELF_BINARY: &[u8] = &[0u8; 0];
 const TA_BINARY: &[u8] = &[0u8; 0];
+const TA_BINARIES: &[&[u8]] = &[TA_BINARY];
+
+/// Look up TA binary by UUID.
+/// TODO: Handle PTA UUIDs
+fn find_ta_binary(ta_uuid: litebox_common_optee::TeeUuid) -> Option<&'static [u8]> {
+    use litebox_common_optee::parse_ta_head;
+
+    for ta_binary in TA_BINARIES {
+        if let Some(ta_head) = parse_ta_head(ta_binary)
+            && ta_head.uuid == ta_uuid
+        {
+            return Some(ta_binary);
+        }
+    }
+    None
+}
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
