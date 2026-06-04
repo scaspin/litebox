@@ -1934,6 +1934,45 @@ mod layered {
             Err(RmdirError::NotADirectory)
         ));
     }
+
+    #[test]
+    fn migrate_file_up_does_not_deadlock() {
+        use std::sync::mpsc;
+        use std::thread;
+        use std::time::Duration;
+
+        let litebox = LiteBox::new(MockPlatform::new());
+
+        let mut in_mem_fs = in_mem::FileSystem::new(&litebox);
+        in_mem_fs.with_root_privileges(|fs| {
+            fs.chmod("/", Mode::RWXU | Mode::RWXG | Mode::RWXO)
+                .expect("Failed to chmod /");
+        });
+
+        let fs = layered::FileSystem::new(
+            &litebox,
+            in_mem_fs,
+            tar_ro::FileSystem::new(&litebox, TEST_TAR_FILE.into()),
+            layered::LayeringSemantics::LowerLayerReadOnly,
+        );
+
+        fs.file_status("foo").expect("Failed to stat foo");
+
+        // Writing to the lower-layer file triggers copy-on-write migration via
+        // `migrate_file_up`. Run it on a worker thread.
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let fd = fs
+                .open("foo", OFlags::WRONLY, Mode::RWXU)
+                .expect("Failed to open file for writing");
+            fs.write(&fd, b"x", None).expect("Failed to write to file");
+            fs.close(&fd).expect("Failed to close file");
+            let _ = tx.send(());
+        });
+
+        rx.recv_timeout(Duration::from_secs(2))
+            .expect("migrate_file_up deadlocked");
+    }
 }
 
 mod stdio {
