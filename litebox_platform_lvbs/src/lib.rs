@@ -151,18 +151,6 @@ const USER_ADDR_MAX: usize = 0x0000_7FFF_FFFF_F000;
 /// <https://cateee.net/lkddb/web-lkddb/LSM_MMAP_MIN_ADDR.html>
 const USER_ADDR_MIN: usize = 0x0000_0000_0001_0000;
 
-#[inline]
-fn is_valid_user_addr(addr: usize) -> bool {
-    (USER_ADDR_MIN..USER_ADDR_MAX).contains(&addr)
-}
-
-/// Checks whether a user context is valid for switching to user mode, i.e.,
-/// both `rsp` and `rip` are within the user-space address range.
-#[inline]
-fn is_valid_user_ctx(ctx: &litebox_common_linux::PtRegs) -> bool {
-    is_valid_user_addr(ctx.rsp) && is_valid_user_addr(ctx.rip)
-}
-
 /// Manages base and task page tables.
 ///
 /// This struct maintains:
@@ -2046,32 +2034,41 @@ unsafe extern "C" fn run_thread_arch(
 
 unsafe extern "C" fn init_handler(thread_ctx: &mut ThreadContext) {
     match thread_ctx.call_shim(|shim, ctx| shim.init(ctx)) {
-        ContinueOperation::Resume if is_valid_user_ctx(thread_ctx.ctx) => unsafe {
-            switch_to_user(thread_ctx.ctx)
-        },
-        ContinueOperation::Terminate | ContinueOperation::Resume => {}
+        ContinueOperation::Resume => {
+            if thread_ctx.ctx.sanitize_for_user_return() {
+                unsafe { switch_to_user(thread_ctx.ctx) }
+            }
+            litebox_util_log::warn!("terminating thread with invalid user return context");
+        }
+        ContinueOperation::Terminate => {}
     }
 }
 
 unsafe extern "C" fn reenter_handler(thread_ctx: &mut ThreadContext) {
     match thread_ctx.call_shim(|shim, ctx| shim.reenter(ctx)) {
-        ContinueOperation::Resume if is_valid_user_ctx(thread_ctx.ctx) => unsafe {
-            switch_to_user(thread_ctx.ctx)
-        },
-        ContinueOperation::Terminate | ContinueOperation::Resume => {}
+        ContinueOperation::Resume => {
+            if thread_ctx.ctx.sanitize_for_user_return() {
+                unsafe { switch_to_user(thread_ctx.ctx) }
+            }
+            litebox_util_log::warn!("terminating thread with invalid user return context");
+        }
+        ContinueOperation::Terminate => {}
     }
 }
 
 unsafe extern "C" fn syscall_handler(thread_ctx: &mut ThreadContext) {
-    if !is_valid_user_ctx(thread_ctx.ctx) {
+    if !thread_ctx.ctx.has_user_return_addresses() {
         return;
     }
 
     match thread_ctx.call_shim(|shim, ctx| shim.syscall(ctx)) {
-        ContinueOperation::Resume if is_valid_user_ctx(thread_ctx.ctx) => unsafe {
-            switch_to_user(thread_ctx.ctx)
-        },
-        ContinueOperation::Terminate | ContinueOperation::Resume => {}
+        ContinueOperation::Resume => {
+            if thread_ctx.ctx.sanitize_for_user_return() {
+                unsafe { switch_to_user(thread_ctx.ctx) }
+            }
+            litebox_util_log::warn!("terminating thread with invalid user return context");
+        }
+        ContinueOperation::Terminate => {}
     }
 }
 
@@ -2141,9 +2138,10 @@ unsafe extern "C" fn exception_handler(
                 0
             } else {
                 // User-mode exception handled; resume user execution.
-                if is_valid_user_ctx(thread_ctx.ctx) {
+                if thread_ctx.ctx.sanitize_for_user_return() {
                     unsafe { switch_to_user(thread_ctx.ctx) }
                 } else {
+                    litebox_util_log::warn!("terminating thread with invalid user return context");
                     0
                 }
             }

@@ -3076,9 +3076,64 @@ pub struct PtRegs {
 }
 
 #[cfg(target_arch = "x86_64")]
-pub const EFLAGS_DF: usize = 0x400;
+pub mod arch {
+    // User returns must not target the null-guard region.
+    pub const USER_ADDR_MIN: usize = 0x0000_0000_0001_0000;
+    // Exclusive upper bound; the final low-canonical page is reserved as a guard page.
+    pub const USER_ADDR_END: usize = 0x0000_7fff_ffff_f000;
+    pub const USER_CS: usize = 0x33;
+    pub const USER_DS: usize = 0x2b;
+    pub const EFLAGS_CF: usize = 1 << 0;
+    pub const EFLAGS_FIXED: usize = 1 << 1;
+    pub const EFLAGS_PF: usize = 1 << 2;
+    pub const EFLAGS_AF: usize = 1 << 4;
+    pub const EFLAGS_ZF: usize = 1 << 6;
+    pub const EFLAGS_SF: usize = 1 << 7;
+    pub const EFLAGS_IF: usize = 1 << 9;
+    pub const EFLAGS_DF: usize = 1 << 10;
+    pub const EFLAGS_OF: usize = 1 << 11;
+    pub const EFLAGS_RF: usize = 1 << 16;
+    pub const EFLAGS_ID: usize = 1 << 21;
+    pub const SAFE_USER_EFLAGS: usize = EFLAGS_CF
+        | EFLAGS_FIXED
+        | EFLAGS_PF
+        | EFLAGS_AF
+        | EFLAGS_ZF
+        | EFLAGS_SF
+        | EFLAGS_IF
+        | EFLAGS_DF
+        | EFLAGS_OF
+        | EFLAGS_RF
+        | EFLAGS_ID;
+}
 
 impl PtRegs {
+    /// Returns whether `rip` and `rsp` are in the x86_64 Linux user address range.
+    #[cfg(target_arch = "x86_64")]
+    #[must_use]
+    pub fn has_user_return_addresses(&self) -> bool {
+        (arch::USER_ADDR_MIN..arch::USER_ADDR_END).contains(&self.rip)
+            && (arch::USER_ADDR_MIN..arch::USER_ADDR_END).contains(&self.rsp)
+    }
+
+    /// Sanitizes CPU state and normalizes the context to the x86_64 Linux user ABI.
+    ///
+    /// Returns `false` if `rip` or `rsp` are outside the x86_64 Linux user address range.
+    /// On success, privileged or unsafe RFLAGS bits are cleared, the fixed
+    /// RFLAGS bit is set, interrupts are enabled, and the user CS/SS selectors
+    /// are set to the x86_64 Linux ABI values.
+    #[cfg(target_arch = "x86_64")]
+    #[must_use]
+    pub fn sanitize_for_user_return(&mut self) -> bool {
+        if !self.has_user_return_addresses() {
+            return false;
+        }
+        self.eflags = (self.eflags & arch::SAFE_USER_EFLAGS) | arch::EFLAGS_FIXED | arch::EFLAGS_IF;
+        self.cs = arch::USER_CS;
+        self.ss = arch::USER_DS;
+        true
+    }
+
     /// Get the `idx`th syscall argument.
     ///
     /// # Panics
