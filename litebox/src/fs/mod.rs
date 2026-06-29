@@ -12,11 +12,14 @@ use bitflags::bitflags;
 use core::ffi::c_uint;
 use core::num::NonZeroUsize;
 
+pub mod backend;
 pub mod devices;
 pub mod errors;
 pub mod in_mem;
+pub(crate) mod inode_allocator;
 pub mod layered;
 pub mod nine_p;
+pub mod resolver;
 pub mod tar_ro;
 
 #[cfg(test)]
