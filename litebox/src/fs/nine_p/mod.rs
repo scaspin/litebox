@@ -603,6 +603,7 @@ impl<Platform: sync::RawSyncPrimitivesProvider, T: transport::Read + transport::
         Ok(())
     }
 
+    #[lock_annotations::mhp("9p_offset")]
     fn read(
         &self,
         fd: &FileFd<Platform, T>,
@@ -636,6 +637,7 @@ impl<Platform: sync::RawSyncPrimitivesProvider, T: transport::Read + transport::
         Ok(bytes_read)
     }
 
+    #[lock_annotations::mhp("9p_offset")]
     fn write(
         &self,
         fd: &FileFd<Platform, T>,
@@ -669,6 +671,7 @@ impl<Platform: sync::RawSyncPrimitivesProvider, T: transport::Read + transport::
         Ok(bytes_written)
     }
 
+    #[lock_annotations::mhp("9p_offset")]
     fn seek(
         &self,
         fd: &FileFd<Platform, T>,

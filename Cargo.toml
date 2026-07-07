@@ -1,4 +1,5 @@
 [workspace]
+exclude = ["sg_eval_vendor"]
 resolver = "2"
 members = [
     "litebox", 
