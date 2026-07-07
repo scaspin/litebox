@@ -653,6 +653,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `close`
+    #[lock_annotations::mhp("fdtable")]
     pub(crate) fn sys_close(&self, fd: i32) -> Result<(), Errno> {
         self.finalize_elf_patch(fd);
 
@@ -2114,6 +2115,7 @@ impl<FS: ShimFS> Task<FS> {
     /// The dup() system call creates a copy of the file descriptor oldfd, using the lowest-numbered unused file descriptor for the new descriptor.
     /// The dup2() system call performs the same task as dup(), but instead of using the lowest-numbered unused file descriptor, it uses the file descriptor number specified in newfd.
     /// The dup3() system call is similar to dup2(), but it also takes an additional flags argument that can be used to set the close-on-exec flag for the new file descriptor.
+    #[lock_annotations::mhp("fdtable")]
     pub fn sys_dup(
         &self,
         oldfd: i32,
