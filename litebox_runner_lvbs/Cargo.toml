@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+lock_annotations = { path = "../sg_eval_vendor/lock_annotations" }
 litebox = { version = "0.1.0", path = "../litebox" }
 litebox_platform_lvbs = { version = "0.1.0", path = "../litebox_platform_lvbs", default-features = false }
 litebox_platform_multiplex = { version = "0.1.0", path = "../litebox_platform_multiplex", default-features = false, features = ["platform_lvbs"] }
