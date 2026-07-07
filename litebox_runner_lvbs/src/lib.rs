@@ -473,6 +473,7 @@ fn optee_smc_handler(smc_args_addr: usize) -> OpteeSmcArgs {
 /// On failure (including TA returning error), msg_args is updated with the error code
 /// and appropriate cleanup is performed (page table teardown for new instances,
 /// instance cleanup for TARGET_DEAD on single-instance TAs with no other sessions).
+#[lock_annotations::mhp("ta")]
 fn handle_open_session(
     msg_args: &mut OpteeMsgArgs,
     msg_args_phys_addr: u64,
@@ -1024,6 +1025,7 @@ fn handle_invoke_command(
 /// Looks up the session, enters the TA to call TA_CloseSessionEntryPoint,
 /// then removes the session from the map. For single-instance TAs, the TA
 /// is only destroyed when the last session closes.
+#[lock_annotations::mhp("ta")]
 fn handle_close_session(
     msg_args: &mut OpteeMsgArgs,
     msg_args_phys_addr: u64,
