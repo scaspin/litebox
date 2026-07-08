@@ -921,6 +921,7 @@ fn parse_type_and_flags(type_and_flags: u32) -> Result<(SockType, SockFlags), Er
 
 impl<FS: ShimFS> Task<FS> {
     /// Handle syscall `socket`
+    #[lock_annotations::mhp("net")]
     pub(crate) fn sys_socket(
         &self,
         domain: u32,
@@ -999,6 +1000,7 @@ impl<FS: ShimFS> Task<FS> {
         Ok(u32::try_from(file).unwrap())
     }
 
+    #[lock_annotations::mhp("net")]
     pub(crate) fn sys_socketpair(
         &self,
         domain: u32,
@@ -1202,6 +1204,7 @@ where
 
 impl<FS: ShimFS> Task<FS> {
     /// Handle syscall `accept`
+    #[lock_annotations::mhp("net")]
     pub(crate) fn sys_accept(
         &self,
         sockfd: i32,
@@ -1282,6 +1285,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `connect`
+    #[lock_annotations::mhp("net")]
     pub(crate) fn sys_connect(
         &self,
         fd: i32,
@@ -1310,6 +1314,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `bind`
+    #[lock_annotations::mhp("net")]
     pub(crate) fn sys_bind(
         &self,
         sockfd: i32,
@@ -1338,6 +1343,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `listen`
+    #[lock_annotations::mhp("net")]
     pub(crate) fn sys_listen(&self, sockfd: i32, backlog: u16) -> Result<(), Errno> {
         let Ok(sockfd) = u32::try_from(sockfd) else {
             return Err(Errno::EBADF);
@@ -1354,6 +1360,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `sendto`
+    #[lock_annotations::mhp("net")]
     pub(crate) fn sys_sendto(
         &self,
         fd: i32,
@@ -1407,6 +1414,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `sendmsg`
+    #[lock_annotations::mhp("net")]
     pub(crate) fn sys_sendmsg(
         &self,
         fd: i32,
@@ -1480,6 +1488,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `sendmmsg`
+    #[lock_annotations::mhp("net")]
     pub(crate) fn sys_sendmmsg(
         &self,
         fd: i32,
@@ -1532,6 +1541,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `recvfrom`
+    #[lock_annotations::mhp("net")]
     pub(crate) fn sys_recvfrom(
         &self,
         fd: i32,
@@ -1631,6 +1641,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `recvmsg`
+    #[lock_annotations::mhp("net")]
     pub(crate) fn sys_recvmsg(
         &self,
         fd: i32,
@@ -1763,6 +1774,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `recvmmsg`
+    #[lock_annotations::mhp("net")]
     pub(crate) fn sys_recvmmsg(
         &self,
         fd: i32,
@@ -1873,6 +1885,7 @@ impl<FS: ShimFS> Task<FS> {
         Ok(received)
     }
 
+    #[lock_annotations::mhp("net")]
     pub(crate) fn sys_setsockopt(
         &self,
         sockfd: i32,
@@ -1906,6 +1919,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `getsockopt`
+    #[lock_annotations::mhp("net")]
     pub(crate) fn sys_getsockopt(
         &self,
         sockfd: i32,
@@ -1950,6 +1964,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `getsockname`
+    #[lock_annotations::mhp("net")]
     pub(crate) fn sys_getsockname(
         &self,
         sockfd: i32,
@@ -1979,6 +1994,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `getpeername`
+    #[lock_annotations::mhp("net")]
     pub(crate) fn sys_getpeername(
         &self,
         sockfd: i32,
@@ -2012,6 +2028,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `shutdown`
+    #[lock_annotations::mhp("net")]
     pub(crate) fn sys_shutdown(&self, sockfd: i32, how: i32) -> Result<(), Errno> {
         let Ok(sockfd) = u32::try_from(sockfd) else {
             return Err(Errno::EBADF);

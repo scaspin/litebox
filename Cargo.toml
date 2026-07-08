@@ -1,4 +1,5 @@
 [workspace]
+exclude = ["vendor/lock_annotations"]
 resolver = "2"
 members = [
     "litebox", 

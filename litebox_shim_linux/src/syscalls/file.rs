@@ -259,6 +259,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `umask`
+    #[lock_annotations::mhp("file")]
     pub(crate) fn sys_umask(&self, new_mask: u32) -> Mode {
         let new_mask = Mode::from_bits_truncate(new_mask) & (Mode::RWXU | Mode::RWXG | Mode::RWXO);
         let old_mask = self
@@ -270,6 +271,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `open`
+    #[lock_annotations::mhp("file")]
     pub fn sys_open(&self, path: impl path::Arg, flags: OFlags, mode: Mode) -> Result<u32, Errno> {
         let path = self.resolve_path(path)?;
         let file = self.do_open(path, flags, mode)?;
@@ -277,6 +279,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `openat`
+    #[lock_annotations::mhp("file")]
     pub fn sys_openat(
         &self,
         dirfd: i32,
@@ -289,6 +292,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `ftruncate`
+    #[lock_annotations::mhp("file")]
     pub(crate) fn sys_ftruncate(&self, fd: i32, length: usize) -> Result<(), Errno> {
         let Ok(raw_fd) = u32::try_from(fd).and_then(usize::try_from) else {
             return Err(Errno::EBADF);
@@ -308,6 +312,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `mknodat` — create a filesystem node.
+    #[lock_annotations::mhp("file")]
     pub(crate) fn sys_mknodat(
         &self,
         dirfd: i32,
@@ -348,6 +353,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `unlinkat`
+    #[lock_annotations::mhp("file")]
     pub(crate) fn sys_unlinkat(
         &self,
         dirfd: i32,
@@ -370,6 +376,7 @@ impl<FS: ShimFS> Task<FS> {
     ///
     /// `offset` is an optional offset to read from. If `None`, it will read from the current file position.
     /// If `Some`, it will read from the specified offset without changing the current file position.
+    #[lock_annotations::mhp("file")]
     pub fn sys_read(&self, fd: i32, buf: &mut [u8], offset: Option<usize>) -> Result<usize, Errno> {
         let Ok(raw_fd) = u32::try_from(fd) else {
             return Err(Errno::EBADF);
@@ -458,6 +465,7 @@ impl<FS: ShimFS> Task<FS> {
     ///
     /// `offset` is an optional offset to write to. If `None`, it will write to the current file position.
     /// If `Some`, it will write to the specified offset without changing the current file position.
+    #[lock_annotations::mhp("file")]
     pub fn sys_write(&self, fd: i32, buf: &[u8], offset: Option<usize>) -> Result<usize, Errno> {
         let Ok(raw_fd) = u32::try_from(fd).and_then(usize::try_from) else {
             return Err(Errno::EBADF);
@@ -523,12 +531,14 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `pread64`
+    #[lock_annotations::mhp("file")]
     pub fn sys_pread64(&self, fd: i32, buf: &mut [u8], offset: i64) -> Result<usize, Errno> {
         let pos = usize::try_from(offset).map_err(|_| Errno::EINVAL)?;
         self.sys_read(fd, buf, Some(pos))
     }
 
     /// Handle syscall `pwrite64`
+    #[lock_annotations::mhp("file")]
     pub fn sys_pwrite64(&self, fd: i32, buf: &[u8], offset: i64) -> Result<usize, Errno> {
         let pos = usize::try_from(offset).map_err(|_| Errno::EINVAL)?;
         self.sys_write(fd, buf, Some(pos))
@@ -561,6 +571,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `sendfile`
+    #[lock_annotations::mhp("file")]
     pub(crate) fn sys_sendfile(
         &self,
         out_fd: i32,
@@ -677,6 +688,7 @@ pub(crate) fn try_into_whence(value: i16) -> Result<SeekWhence, i16> {
 
 impl<FS: ShimFS> Task<FS> {
     /// Handle syscall `lseek`
+    #[lock_annotations::mhp("file")]
     pub fn sys_lseek(&self, fd: i32, offset: isize, whence: SeekWhence) -> Result<usize, Errno> {
         let Ok(raw_fd) = u32::try_from(fd).and_then(usize::try_from) else {
             return Err(Errno::EBADF);
@@ -728,6 +740,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `mkdirat`
+    #[lock_annotations::mhp("file")]
     pub(crate) fn sys_mkdirat(
         &self,
         dirfd: i32,
@@ -847,6 +860,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `close`
+    #[lock_annotations::mhp("file")]
     pub(crate) fn sys_close(&self, fd: i32) -> Result<(), Errno> {
         let Ok(raw_fd) = u32::try_from(fd).and_then(usize::try_from) else {
             return Err(Errno::EBADF);
@@ -855,6 +869,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `preadv`
+    #[lock_annotations::mhp("file")]
     pub(crate) fn sys_preadv(
         &self,
         fd: i32,
@@ -874,6 +889,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `pwritev`
+    #[lock_annotations::mhp("file")]
     pub(crate) fn sys_pwritev(
         &self,
         fd: i32,
@@ -894,6 +910,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `readv`
+    #[lock_annotations::mhp("file")]
     pub(crate) fn sys_readv(
         &self,
         fd: i32,
@@ -1051,6 +1068,7 @@ where
 
 impl<FS: ShimFS> Task<FS> {
     /// Handle syscall `writev`
+    #[lock_annotations::mhp("file")]
     pub(crate) fn sys_writev(
         &self,
         fd: i32,
@@ -1139,6 +1157,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `faccessat`
+    #[lock_annotations::mhp("file")]
     pub(crate) fn sys_faccessat(
         &self,
         dirfd: i32,
@@ -1207,11 +1226,13 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `readlink`
+    #[lock_annotations::mhp("file")]
     pub fn sys_readlink(&self, pathname: impl path::Arg, buf: &mut [u8]) -> Result<usize, Errno> {
         self.sys_readlinkat(litebox_common_linux::AT_FDCWD, pathname, buf)
     }
 
     /// Handle syscall `readlinkat`
+    #[lock_annotations::mhp("file")]
     pub fn sys_readlinkat(
         &self,
         dirfd: i32,
@@ -1351,6 +1372,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `stat`
+    #[lock_annotations::mhp("file")]
     pub fn sys_stat(&self, pathname: impl path::Arg) -> Result<FileStat, Errno> {
         let pathname = self.resolve_path(pathname)?;
         self.do_stat(pathname, true)
@@ -1361,12 +1383,14 @@ impl<FS: ShimFS> Task<FS> {
     /// `lstat` is identical to `stat`, except that if `pathname` is a symbolic link,
     /// then it returns information about the link itself, not the file that the link refers to.
     /// TODO: we do not support symbolic links yet.
+    #[lock_annotations::mhp("file")]
     pub fn sys_lstat(&self, pathname: impl path::Arg) -> Result<FileStat, Errno> {
         let pathname = self.resolve_path(pathname)?;
         self.do_stat(pathname, false)
     }
 
     /// Handle syscall `fstat`
+    #[lock_annotations::mhp("file")]
     pub fn sys_fstat(&self, fd: i32) -> Result<FileStat, Errno> {
         let Ok(raw_fd) = u32::try_from(fd).and_then(usize::try_from) else {
             return Err(Errno::EBADF);
@@ -1404,6 +1428,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `newfstatat`
+    #[lock_annotations::mhp("file")]
     pub(crate) fn sys_newfstatat(
         &self,
         dirfd: i32,
@@ -1420,6 +1445,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `statx`
+    #[lock_annotations::mhp("file")]
     pub(crate) fn sys_statx(
         &self,
         dirfd: i32,
@@ -1453,6 +1479,7 @@ impl<FS: ShimFS> Task<FS> {
         self.do_fstatat(dirfd, pathname, flags)
     }
 
+    #[lock_annotations::mhp("file")]
     pub(crate) fn sys_fcntl(
         &self,
         fd: i32,
@@ -1659,6 +1686,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `getcwd`
+    #[lock_annotations::mhp("file")]
     pub fn sys_getcwd(&self, buf: &mut [u8]) -> Result<usize, Errno> {
         let cwd = self.fs.borrow().cwd.read().clone();
         // need to account for the null terminator
@@ -1675,6 +1703,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `chdir`
+    #[lock_annotations::mhp("file")]
     pub fn sys_chdir(&self, pathname: impl path::Arg) -> Result<(), Errno> {
         use litebox::fs::FileType;
         use litebox::fs::errors::{FileStatusError, PathError};
@@ -1715,6 +1744,7 @@ impl<FS: ShimFS> Task<FS> {
 
 impl<FS: ShimFS> Task<FS> {
     /// Handle syscall `pipe2`
+    #[lock_annotations::mhp("file")]
     pub fn sys_pipe2(&self, flags: OFlags) -> Result<(u32, u32), Errno> {
         let pipe = self.global.create_linux_pipe(flags)?;
 
@@ -1736,6 +1766,7 @@ impl<FS: ShimFS> Task<FS> {
         Ok((rd_raw_fd.try_into().unwrap(), wr_raw_fd.try_into().unwrap()))
     }
 
+    #[lock_annotations::mhp("file")]
     pub fn sys_eventfd2(&self, initval: u32, flags: EfdFlags) -> Result<u32, Errno> {
         if flags
             .intersects((EfdFlags::SEMAPHORE | EfdFlags::CLOEXEC | EfdFlags::NONBLOCK).complement())
@@ -1817,6 +1848,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `ioctl`
+    #[lock_annotations::mhp("file")]
     pub fn sys_ioctl(
         &self,
         fd: i32,
@@ -1968,6 +2000,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `epoll_create` and `epoll_create1`
+    #[lock_annotations::mhp("file")]
     pub fn sys_epoll_create(&self, flags: EpollCreateFlags) -> Result<u32, Errno> {
         if flags.intersects(EpollCreateFlags::EPOLL_CLOEXEC.complement()) {
             return Err(Errno::EINVAL);
@@ -1994,6 +2027,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `epoll_ctl`
+    #[lock_annotations::mhp("file")]
     pub(crate) fn sys_epoll_ctl(
         &self,
         epfd: i32,
@@ -2035,6 +2069,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `epoll_pwait`
+    #[lock_annotations::mhp("file")]
     pub fn sys_epoll_pwait(
         &self,
         epfd: i32,
@@ -2102,6 +2137,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `ppoll`.
+    #[lock_annotations::mhp("file")]
     pub fn sys_ppoll(
         &self,
         fds: MutPtr<litebox_common_linux::Pollfd>,
@@ -2241,6 +2277,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `pselect`.
+    #[lock_annotations::mhp("file")]
     pub(crate) fn sys_pselect(
         &self,
         nfds: u32,
@@ -2396,6 +2433,7 @@ impl<FS: ShimFS> Task<FS> {
     /// The dup() system call creates a copy of the file descriptor oldfd, using the lowest-numbered unused file descriptor for the new descriptor.
     /// The dup2() system call performs the same task as dup(), but instead of using the lowest-numbered unused file descriptor, it uses the file descriptor number specified in newfd.
     /// The dup3() system call is similar to dup2(), but it also takes an additional flags argument that can be used to set the close-on-exec flag for the new file descriptor.
+    #[lock_annotations::mhp("file")]
     pub fn sys_dup(
         &self,
         oldfd: i32,
@@ -2465,6 +2503,7 @@ const DIRENT_STRUCT_BYTES_WITHOUT_NAME: usize =
 
 impl<FS: ShimFS> Task<FS> {
     /// Handle syscall `getdents64`
+    #[lock_annotations::mhp("file")]
     pub(crate) fn sys_getdirent64(
         &self,
         fd: i32,

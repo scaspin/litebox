@@ -361,6 +361,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `prctl`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_prctl(
         &self,
         arg: PrctlArg<litebox_platform_multiplex::Platform>,
@@ -403,6 +404,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `arch_prctl`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_arch_prctl(
         &self,
         arg: ArchPrctlArg<litebox_platform_multiplex::Platform>,
@@ -518,12 +520,14 @@ impl<FS: ShimFS> Task<FS> {
         }
     }
 
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_exit(&self, status: i32) {
         // The `Task` will be dropped on the way out of the shim, which will
         // call `self.prepare_for_exit()`.
         self.exit_thread(status.trunc());
     }
 
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_exit_group(&self, status: i32) {
         // Tear down occurs similarly to `sys_exit`.
         self.exit_group(ExitStatus::Exit(status.trunc()));
@@ -559,6 +563,7 @@ impl<FS: ShimFS> litebox::shim::InitThread for NewThreadArgs<FS> {
 }
 
 impl<FS: ShimFS> Task<FS> {
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_clone(
         &self,
         ctx: &litebox_common_linux::PtRegs,
@@ -567,6 +572,7 @@ impl<FS: ShimFS> Task<FS> {
         self.do_clone(ctx, args, false)
     }
 
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_clone3(
         &self,
         ctx: &litebox_common_linux::PtRegs,
@@ -751,12 +757,14 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `set_tid_address`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_set_tid_address(&self, tidptr: crate::MutPtr<i32>) -> i32 {
         self.thread.clear_child_tid.set(Some(tidptr));
         self.tid
     }
 
     /// Handle syscall `gettid`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_gettid(&self) -> i32 {
         self.tid
     }
@@ -878,6 +886,7 @@ impl<FS: ShimFS> Task<FS> {
     ///
     /// Note for now setting new limits is not supported yet, and thus returning constant values
     /// for the requested resource. Getting resources for a specific PID is also not supported yet.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_prlimit(
         &self,
         pid: i32,
@@ -906,6 +915,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `setrlimit`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_getrlimit(
         &self,
         resource: litebox_common_linux::RlimitResource,
@@ -916,6 +926,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `setrlimit`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_setrlimit(
         &self,
         resource: litebox_common_linux::RlimitResource,
@@ -927,12 +938,14 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `set_robust_list`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_set_robust_list(&self, head: usize) {
         let head = crate::ConstPtr::from_usize(head);
         self.thread.robust_list.set(Some(head));
     }
 
     /// Handle syscall `get_robust_list`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_get_robust_list(
         &self,
         pid: Option<i32>,
@@ -958,6 +971,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `clock_gettime`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_clock_gettime(
         &self,
         clockid: litebox_common_linux::ClockId,
@@ -1032,6 +1046,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `clock_getres`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_clock_getres(
         &self,
         clockid: litebox_common_linux::ClockId,
@@ -1055,6 +1070,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `clock_nanosleep`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_clock_nanosleep(
         &self,
         clockid: litebox_common_linux::ClockId,
@@ -1095,6 +1111,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `gettimeofday`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_gettimeofday(
         &self,
         tv: Option<crate::MutPtr<litebox_common_linux::TimeVal>>,
@@ -1115,6 +1132,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `time`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_time(
         &self,
         tloc: Option<crate::MutPtr<litebox_common_linux::time_t>>,
@@ -1136,6 +1154,7 @@ impl<FS: ShimFS> Task<FS> {
     /// was set.
     ///
     /// The alarm is per-process: all threads share the same alarm timer.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_alarm(&self, seconds: u32) -> Result<u32, Errno> {
         let prev = self.arm_real_timer(Duration::from_secs(u64::from(seconds)))?;
         // Round remaining time up to whole seconds, saturating to u32::MAX.
@@ -1178,6 +1197,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `setitimer`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_setitimer(
         &self,
         which: IntervalTimer,
@@ -1218,6 +1238,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `getitimer`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_getitimer(
         &self,
         which: IntervalTimer,
@@ -1240,6 +1261,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `pause`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_pause(&self) -> Result<(), Errno> {
         match self.wait_cx().sleep() {
             WaitError::Interrupted => Err(Errno::EINTR),
@@ -1248,30 +1270,36 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `getpid`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_getpid(&self) -> i32 {
         self.pid
     }
 
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_getppid(&self) -> i32 {
         self.ppid
     }
 
     /// Handle syscall `getuid`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_getuid(&self) -> u32 {
         self.credentials.uid
     }
 
     /// Handle syscall `geteuid`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_geteuid(&self) -> u32 {
         self.credentials.euid
     }
 
     /// Handle syscall `getgid`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_getgid(&self) -> u32 {
         self.credentials.gid
     }
 
     /// Handle syscall `getegid`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_getegid(&self) -> u32 {
         self.credentials.egid
     }
@@ -1297,6 +1325,7 @@ impl<FS: ShimFS> Task<FS> {
     /// Handle syscall `sched_getaffinity`.
     ///
     /// Note this is a dummy implementation that always returns the same CPU set
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_sched_getaffinity(&self, _pid: Option<i32>) -> CpuSet {
         let mut cpuset = bitvec::bitvec![u8, bitvec::order::Lsb0; 0; NR_CPUS];
         cpuset.iter_mut().for_each(|mut b| *b = true);
@@ -1306,6 +1335,7 @@ impl<FS: ShimFS> Task<FS> {
 
 impl<FS: ShimFS> Task<FS> {
     /// Handle syscall `futex`
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_futex(
         &self,
         arg: litebox_common_linux::FutexArgs<litebox_platform_multiplex::Platform>,
@@ -1462,6 +1492,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `execve`.
+    #[lock_annotations::mhp("process")]
     pub(crate) fn sys_execve(
         &self,
         pathname: crate::ConstPtr<i8>,

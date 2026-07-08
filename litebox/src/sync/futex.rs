@@ -80,6 +80,7 @@ impl<Platform: RawSyncPrimitivesProvider + RawPointerProvider + TimeProvider>
     /// If `bitset` is `Some`, then the waiter is only woken if the wake call's
     /// `bitset` has a non-zero intersection with the waiter's mask. Specifying
     /// `None` is equivalent to setting all bits in the mask.
+    #[lock_annotations::mhp("futex")]
     pub fn wait(
         &self,
         cx: &WaitContext<'_, Platform>,
@@ -132,6 +133,7 @@ impl<Platform: RawSyncPrimitivesProvider + RawPointerProvider + TimeProvider>
     /// waiters are eligible to be woken.
     ///
     /// Returns the number of waiters that were woken up.
+    #[lock_annotations::mhp("futex")]
     pub fn wake(
         &self,
         futex_addr: Platform::RawMutPointer<u32>,

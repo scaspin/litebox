@@ -160,6 +160,8 @@ impl<Platform: RawSyncPrimitivesProvider> WaitState<Platform> {
 
 impl<Platform: RawSyncPrimitivesProvider> WaitStateInner<Platform> {
     /// Wakes up the thread if it is waiting (but not if it is running in the guest).
+    #[lock_annotations::define_lock(WAITER = self.condvar)]
+    #[lock_annotations::foreign(wake, on = self.condvar)]
     fn wake(&self) {
         let condvar = &self.condvar;
         let v = condvar.underlying_atomic().fetch_update(
@@ -393,6 +395,8 @@ impl<'a, Platform: RawSyncPrimitivesProvider + TimeProvider> WaitContext<'a, Pla
     ///
     /// `start_wait` must have already been called and the wait condition
     /// evaluated.
+    #[lock_annotations::define_lock(WAITER = self.condvar)]
+    #[lock_annotations::foreign(wait, on = self.condvar, blocks)]
     fn commit_wait(&self) -> Result<(), WaitError> {
         // Check for timeout before checking for an interrupt. This is important
         // for things like sleep(), where we want to return `TimedOut` rather than

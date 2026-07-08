@@ -14,6 +14,7 @@ use litebox_common_linux::errno::Errno;
 
 impl<FS: ShimFS> Task<FS> {
     /// Handle syscall `getrandom`.
+    #[lock_annotations::mhp("misc")]
     pub(crate) fn sys_getrandom(
         &self,
         buf: crate::MutPtr<u8>,
@@ -67,6 +68,7 @@ const SYS_INFO: litebox_common_linux::Utsname = litebox_common_linux::Utsname {
 
 impl<FS: ShimFS> Task<FS> {
     /// Handle syscall `uname`.
+    #[lock_annotations::mhp("misc")]
     pub(crate) fn sys_uname(
         &self,
         buf: crate::MutPtr<litebox_common_linux::Utsname>,
@@ -75,6 +77,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `sysinfo`.
+    #[lock_annotations::mhp("misc")]
     pub(crate) fn sys_sysinfo(&self) -> litebox_common_linux::Sysinfo {
         let now = self.global.platform.now();
         litebox_common_linux::Sysinfo {
@@ -105,6 +108,7 @@ impl<FS: ShimFS> Task<FS> {
     /// Handle syscall `capget`.
     ///
     /// Note we don't support capabilities in LiteBox, so this returns empty capabilities.
+    #[lock_annotations::mhp("misc")]
     pub(crate) fn sys_capget(
         &self,
         header: crate::MutPtr<litebox_common_linux::CapHeader>,

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+lock_annotations = { path = "../vendor/lock_annotations" }
 arrayvec = { version = "0.7.6", default-features = false }
 bitvec = { version = "1.0.1", default-features = false, features = ["alloc"] }
 bitflags = "2.9.0"

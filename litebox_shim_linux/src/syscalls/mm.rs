@@ -317,6 +317,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     /// Handle syscall `mmap`
+    #[lock_annotations::mhp("mm")]
     pub(crate) fn sys_mmap(
         &self,
         addr: usize,
@@ -377,6 +378,7 @@ impl<FS: ShimFS> Task<FS> {
 
     /// Handle syscall `munmap`
     #[inline]
+    #[lock_annotations::mhp("mm")]
     pub(crate) fn sys_munmap(&self, addr: crate::MutPtr<u8>, len: usize) -> Result<(), Errno> {
         let result = self.sys_munmap_raw(addr, len);
         if result.is_ok() {
@@ -388,6 +390,7 @@ impl<FS: ShimFS> Task<FS> {
     /// Raw munmap without clearing file_mappings — used internally by the
     /// patching logic to avoid deadlocks (the patch path holds elf_patch_cache).
     #[inline]
+    #[lock_annotations::mhp("mm")]
     fn sys_munmap_raw(&self, addr: crate::MutPtr<u8>, len: usize) -> Result<(), Errno> {
         litebox_common_linux::mm::sys_munmap(&self.global.pm, addr, len)
     }
@@ -412,6 +415,7 @@ impl<FS: ShimFS> Task<FS> {
 
     /// Handle syscall `mprotect`
     #[inline]
+    #[lock_annotations::mhp("mm")]
     pub(crate) fn sys_mprotect(
         &self,
         addr: crate::MutPtr<u8>,
@@ -431,6 +435,7 @@ impl<FS: ShimFS> Task<FS> {
     /// Raw mprotect without exec interception — used internally by the
     /// patching logic to avoid deadlocks (the patch path holds elf_patch_cache).
     #[inline]
+    #[lock_annotations::mhp("mm")]
     fn sys_mprotect_raw(
         &self,
         addr: crate::MutPtr<u8>,
@@ -441,6 +446,7 @@ impl<FS: ShimFS> Task<FS> {
     }
 
     #[inline]
+    #[lock_annotations::mhp("mm")]
     pub(crate) fn sys_mremap(
         &self,
         old_addr: crate::MutPtr<u8>,
@@ -461,12 +467,14 @@ impl<FS: ShimFS> Task<FS> {
 
     /// Handle syscall `brk`
     #[inline]
+    #[lock_annotations::mhp("mm")]
     pub(crate) fn sys_brk(&self, addr: MutPtr<u8>) -> Result<usize, Errno> {
         litebox_common_linux::mm::sys_brk(&self.global.pm, addr)
     }
 
     /// Handle syscall `madvise`
     #[inline]
+    #[lock_annotations::mhp("mm")]
     pub(crate) fn sys_madvise(
         &self,
         addr: MutPtr<u8>,

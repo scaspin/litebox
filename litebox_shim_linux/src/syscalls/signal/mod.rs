@@ -381,6 +381,7 @@ impl SignalState {
 struct DeliverFault;
 
 impl<FS: ShimFS> Task<FS> {
+    #[lock_annotations::mhp("signal")]
     pub(crate) fn sys_rt_sigprocmask(
         &self,
         how: SigmaskHow,
@@ -421,6 +422,7 @@ impl<FS: ShimFS> Task<FS> {
         Ok(0)
     }
 
+    #[lock_annotations::mhp("signal")]
     pub(crate) fn sys_sigaltstack(
         &self,
         ss_ptr: Option<ConstPtr<SigAltStack>>,
@@ -445,6 +447,7 @@ impl<FS: ShimFS> Task<FS> {
         Ok(0)
     }
 
+    #[lock_annotations::mhp("signal")]
     pub(crate) fn sys_rt_sigreturn(&self, ctx: &mut PtRegs) -> Result<usize, Errno> {
         let uctx_addr = arch::uctx_addr(ctx);
         let uctx_ptr = ConstPtr::<Ucontext>::from_usize(uctx_addr);
@@ -461,6 +464,7 @@ impl<FS: ShimFS> Task<FS> {
         Ok(arch::restore_sigcontext(ctx, &uctx.mcontext))
     }
 
+    #[lock_annotations::mhp("signal")]
     pub(crate) fn sys_rt_sigaction(
         &self,
         signal: Signal,
@@ -503,14 +507,17 @@ impl<FS: ShimFS> Task<FS> {
         Ok(0)
     }
 
+    #[lock_annotations::mhp("signal")]
     pub(crate) fn sys_kill(&self, pid: i32, signal: i32) -> Result<usize, Errno> {
         self.do_kill(Some(pid), None, signal)
     }
 
+    #[lock_annotations::mhp("signal")]
     pub(crate) fn sys_tkill(&self, tid: i32, signal: i32) -> Result<usize, Errno> {
         self.do_kill(None, Some(tid), signal)
     }
 
+    #[lock_annotations::mhp("signal")]
     pub(crate) fn sys_tgkill(&self, pid: i32, tid: i32, signal: i32) -> Result<usize, Errno> {
         self.do_kill(Some(pid), Some(tid), signal)
     }
