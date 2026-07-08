@@ -140,6 +140,7 @@ impl Task {
     ///
     /// Returns `Ok(None)` for PTAs flagged `TaFlags::CONCURRENT` (no gating).
     /// For a non-concurrent PTA that is busy, returns `Err(Busy)` immediately.
+    #[lock_annotations::mhp("ta_session")]
     fn try_set_busy(&self, pta: PseudoTa) -> Result<Option<PtaBusyGuard<'_>>, TeeResult> {
         if pta.flags().contains(TaFlags::CONCURRENT) {
             return Ok(None);
@@ -154,6 +155,7 @@ impl Task {
         Ok(Some(PtaBusyGuard { task: self, pta }))
     }
 
+    #[lock_annotations::mhp("ta_session")]
     pub(crate) fn open_pta_session(
         &self,
         pta: PseudoTa,
@@ -185,6 +187,7 @@ impl Task {
         Ok(session_id)
     }
 
+    #[lock_annotations::mhp("ta_session")]
     pub(crate) fn close_pta_session(&self, ta_session_id: u32) -> Option<PseudoTa> {
         let mut pta_sessions = self.pta_sessions.lock();
         let pta = pta_sessions.remove(&ta_session_id)?;

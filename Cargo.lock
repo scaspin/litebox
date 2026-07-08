@@ -1722,6 +1722,7 @@ dependencies = [
  "litebox_common_optee",
  "litebox_platform_multiplex",
  "litebox_util_log",
+ "lock_annotations",
  "num_enum",
  "once_cell",
  "sha2",
