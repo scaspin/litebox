@@ -267,6 +267,7 @@ impl LinuxUserland {
     /// # Panics
     ///
     /// Panics if an overlapping region is already registered.
+    #[lock_annotations::mhp("platform_userland")]
     pub fn register_cow_region(&self, data: &'static [u8], file_path: impl Into<PathBuf>) {
         let start = data.as_ptr() as usize;
         let info = CowRegionInfo {
@@ -391,6 +392,7 @@ impl LinuxUserland {
     /// # Panics
     ///
     /// Panics if the TUN device is not initialized.
+    #[lock_annotations::mhp("platform_userland")]
     pub fn wait_on_tun(&self, timeout: Option<Duration>) {
         let tun_fd = self.tun_socket_fd.read().unwrap();
         let mut pfd = libc::pollfd {
@@ -1168,6 +1170,7 @@ impl litebox::platform::RawMutex for RawMutex {
 }
 
 impl litebox::platform::IPInterfaceProvider for LinuxUserland {
+    #[lock_annotations::mhp("platform_userland")]
     fn send_ip_packet(&self, packet: &[u8]) -> Result<(), litebox::platform::SendError> {
         let tun_fd = self.tun_socket_fd.read().unwrap();
         let Some(tun_socket_fd) = tun_fd.as_ref() else {
@@ -1193,6 +1196,7 @@ impl litebox::platform::IPInterfaceProvider for LinuxUserland {
         }
     }
 
+    #[lock_annotations::mhp("platform_userland")]
     fn receive_ip_packet(
         &self,
         packet: &mut [u8],
@@ -1560,6 +1564,7 @@ impl<const ALIGN: usize> litebox::platform::PageManagementProvider<ALIGN> for Li
         self.reserved_pages.iter()
     }
 
+    #[lock_annotations::mhp("platform_userland")]
     fn try_allocate_cow_pages(
         &self,
         suggested_start: usize,
