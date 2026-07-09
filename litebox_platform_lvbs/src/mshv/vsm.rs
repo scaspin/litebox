@@ -329,6 +329,7 @@ fn parse_certs(mut buf: &[u8]) -> Result<Vec<Certificate>, VsmError> {
 
 /// VSM function for loading kernel data (e.g., certificates, blocklist, kernel symbols) into VTL1.
 /// `pa` and `nranges` specify memory areas containing the information about the memory ranges to load.
+#[lock_annotations::mhp("vsm")]
 pub fn mshv_vsm_load_kdata(pa: u64, nranges: u64) -> Result<i64, VsmError> {
     if PhysAddr::try_new(pa)
         .ok()
@@ -471,6 +472,7 @@ pub fn mshv_vsm_load_kdata(pa: u64, nranges: u64) -> Result<i64, VsmError> {
 /// `pa` and `nranges` specify a memory area containing the information about the kernel module to validate or protect.
 /// `flags` controls the validation process (unused for now).
 /// This function returns a unique `token` to VTL0, which is used to identify the module in subsequent calls.
+#[lock_annotations::mhp("vsm")]
 pub fn mshv_vsm_validate_guest_module(pa: u64, nranges: u64, _flags: u64) -> Result<i64, VsmError> {
     if PhysAddr::try_new(pa)
         .ok()
@@ -591,6 +593,7 @@ pub fn mshv_vsm_validate_guest_module(pa: u64, nranges: u64, _flags: u64) -> Res
 /// freeing the memory ranges that were used only for initialization and
 /// write-protecting the memory ranges that should be read-only after initialization.
 /// `token` is the unique identifier for the module.
+#[lock_annotations::mhp("vsm")]
 pub fn mshv_vsm_free_guest_module_init(token: i64) -> Result<i64, VsmError> {
     debug_serial_println!("VSM: Free kernel module's init (token: {})", token);
 
@@ -633,6 +636,7 @@ pub fn mshv_vsm_free_guest_module_init(token: i64) -> Result<i64, VsmError> {
 
 /// VSM function for supporting the unloading of a guest kernel module.
 /// `token` is the unique identifier for the module.
+#[lock_annotations::mhp("vsm")]
 pub fn mshv_vsm_unload_guest_module(token: i64) -> Result<i64, VsmError> {
     debug_serial_println!("VSM: Unload kernel module (token: {})", token);
 
@@ -688,6 +692,7 @@ pub fn mshv_vsm_copy_secondary_key(_pa: u64, _nranges: u64) -> Result<i64, VsmEr
 /// This function protects the kexec kernel blob (PE) only if it has a valid signature.
 /// Note: this function does not make kexec kernel pages executable, which should be done by
 /// another VTL1 method that can intercept the kexec/reset signal.
+#[lock_annotations::mhp("vsm")]
 pub fn mshv_vsm_kexec_validate(pa: u64, nranges: u64, crash: u64) -> Result<i64, VsmError> {
     debug_serial_println!(
         "VSM: Validate kexec pa {:#x} nranges {} crash {}",
@@ -805,6 +810,7 @@ pub fn mshv_vsm_kexec_validate(pa: u64, nranges: u64, crash: u64) -> Result<i64,
 /// VSM function for patching kernel or module text. VTL0 kernel calls this function to patch certain kernel or module
 /// text region (which it does not have a permission to modify). It passes `HekiPatch` structure which can be stored
 /// within one or across two likely non-contiguous physical pages.
+#[lock_annotations::mhp("vsm")]
 pub fn mshv_vsm_patch_text(patch_pa_0: u64, patch_pa_1: u64) -> Result<i64, VsmError> {
     let heki_patch = copy_heki_patch_from_vtl0(patch_pa_0, patch_pa_1)?;
     debug_serial_println!("VSM: {:?}", heki_patch);

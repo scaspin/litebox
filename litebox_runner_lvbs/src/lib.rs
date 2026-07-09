@@ -501,6 +501,7 @@ fn optee_smc_handler(smc_args_addr: usize) -> OpteeSmcArgs {
 /// On failure (including TA returning error), msg_args is updated with the error code
 /// and appropriate cleanup is performed (page table teardown for new instances,
 /// instance cleanup for TARGET_DEAD on single-instance TAs).
+#[lock_annotations::mhp("ta_lvbs")]
 fn handle_open_session(
     msg_args: &mut OpteeMsgArgs,
     msg_args_phys_addr: u64,
@@ -549,6 +550,7 @@ fn handle_open_session(
 /// On TARGET_DEAD, sessions for the failed instance are marked `Dead`, the matching
 /// single-instance cache entry is evicted, and the TA instance is torn down.
 /// For cleanup semantics, see OP-TEE OS `tee_ta_open_session()` in `tee_ta_manager.c`.
+#[lock_annotations::mhp("ta_lvbs")]
 fn open_session_single_instance(
     msg_args: &mut OpteeMsgArgs,
     msg_args_phys_addr: u64,
@@ -709,6 +711,7 @@ fn open_session_single_instance(
 ///
 /// If ldelf loading or OpenSession entry point fails, the page table is torn down.
 /// Per OP-TEE OS semantics: if OpenSession returns non-success, cleanup happens.
+#[lock_annotations::mhp("ta_lvbs")]
 fn open_session_new_instance(
     msg_args: &mut OpteeMsgArgs,
     msg_args_phys_addr: u64,
@@ -918,6 +921,7 @@ fn open_session_new_instance(
 ///
 /// Must be called from within a `with_session` closure so its serialization
 /// covers the cleanup.
+#[lock_annotations::mhp("ta_lvbs")]
 fn finalize_dead_session(
     session_id: u32,
     msg_args: &mut OpteeMsgArgs,
@@ -943,6 +947,7 @@ fn finalize_dead_session(
 ///
 /// Per OP-TEE OS semantics: if the TA panics (returns TARGET_DEAD), the session
 /// should be cleaned up. For single-instance TAs, the entire instance is destroyed.
+#[lock_annotations::mhp("ta_lvbs")]
 fn handle_invoke_command(
     msg_args: &mut OpteeMsgArgs,
     msg_args_phys_addr: u64,
@@ -1059,6 +1064,7 @@ fn handle_invoke_command(
 /// Looks up the session, enters the TA to call TA_CloseSessionEntryPoint,
 /// then removes the session from the map. For single-instance TAs, the TA
 /// is only destroyed when the last session closes.
+#[lock_annotations::mhp("ta_lvbs")]
 fn handle_close_session(
     msg_args: &mut OpteeMsgArgs,
     msg_args_phys_addr: u64,
