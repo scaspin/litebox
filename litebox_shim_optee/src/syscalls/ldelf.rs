@@ -79,6 +79,7 @@ impl Task {
     /// On success, returns `start` plus a `Cleanup` that unmaps the usable
     /// region. The caller communicates the address back to userspace and must
     /// run the cleanup if that write-back fails.
+    #[lock_annotations::mhp("ta_ldelf")]
     pub fn sys_map_zi(
         &self,
         va: usize,
@@ -160,6 +161,7 @@ impl Task {
     }
 
     /// OP-TEE's syscall to open a TA binary.
+    #[lock_annotations::mhp("ta_ldelf")]
     pub fn sys_open_bin(&self, ta_uuid: TeeUuid, handle: UserMutPtr<u32>) -> Result<(), TeeResult> {
         #[cfg(debug_assertions)]
         litebox_util_log::debug!(
@@ -178,6 +180,7 @@ impl Task {
     }
 
     /// OP-TEE's syscall to close a TA binary.
+    #[lock_annotations::mhp("ta_ldelf")]
     pub fn sys_close_bin(&self, handle: u32) -> Result<(), TeeResult> {
         #[cfg(debug_assertions)]
         litebox_util_log::debug!(handle:% = handle; "sys_close_bin");
@@ -192,6 +195,7 @@ impl Task {
 
     /// OP-TEE's syscall to map a portion of a TA binary into memory.
     #[allow(clippy::too_many_arguments)]
+    #[lock_annotations::mhp("ta_ldelf")]
     pub fn sys_map_bin(
         &self,
         va: UserMutPtr<usize>,
@@ -367,6 +371,7 @@ impl Task {
     }
 
     /// OP-TEE's syscall to copy data from the TA binary to memory.
+    #[lock_annotations::mhp("ta_ldelf")]
     pub fn sys_cp_from_bin(
         &self,
         dst: usize,

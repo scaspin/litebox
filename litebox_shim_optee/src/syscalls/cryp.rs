@@ -18,6 +18,7 @@ use litebox_common_optee::{
 use crate::{Cipher, TeeCrypState, TeeObj, UserMutPtr};
 
 impl Task {
+    #[lock_annotations::mhp("ta_crypto")]
     pub(crate) fn sys_cryp_state_alloc(
         &self,
         algo: TeeAlgorithm,
@@ -79,6 +80,7 @@ impl Task {
     }
 
     #[allow(clippy::unnecessary_wraps)]
+    #[lock_annotations::mhp("ta_crypto")]
     pub(crate) fn sys_cryp_state_free(&self, state: TeeCrypStateHandle) -> Result<(), TeeResult> {
         let tee_cryp_state_map = &self.tee_cryp_state_map;
         let tee_obj_map = &self.tee_obj_map;
@@ -94,6 +96,7 @@ impl Task {
         Ok(())
     }
 
+    #[lock_annotations::mhp("ta_crypto")]
     pub(crate) fn sys_cipher_init(
         &self,
         state: TeeCrypStateHandle,
@@ -138,6 +141,7 @@ impl Task {
         }
     }
 
+    #[lock_annotations::mhp("ta_crypto")]
     pub(crate) fn sys_cipher_update(
         &self,
         state: TeeCrypStateHandle,
@@ -148,6 +152,7 @@ impl Task {
         self.do_cipher_update(state, src_slice, dst_slice, dst_len, false)
     }
 
+    #[lock_annotations::mhp("ta_crypto")]
     pub(crate) fn sys_cipher_final(
         &self,
         state: TeeCrypStateHandle,
@@ -207,6 +212,7 @@ impl Task {
         }
     }
 
+    #[lock_annotations::mhp("ta_crypto")]
     pub(crate) fn sys_cryp_obj_get_info(
         &self,
         obj: TeeObjHandle,
@@ -222,6 +228,7 @@ impl Task {
         }
     }
 
+    #[lock_annotations::mhp("ta_crypto")]
     pub(crate) fn sys_cryp_obj_alloc(
         &self,
         typ: TeeObjectType,
@@ -239,6 +246,7 @@ impl Task {
         }
     }
 
+    #[lock_annotations::mhp("ta_crypto")]
     pub(crate) fn sys_cryp_obj_close(&self, obj: TeeObjHandle) -> Result<(), TeeResult> {
         let tee_obj_map = &self.tee_obj_map;
         if tee_obj_map.exists(obj) {
@@ -249,6 +257,7 @@ impl Task {
         }
     }
 
+    #[lock_annotations::mhp("ta_crypto")]
     pub(crate) fn sys_cryp_obj_reset(&self, obj: TeeObjHandle) -> Result<(), TeeResult> {
         let tee_obj_map = &self.tee_obj_map;
         if tee_obj_map.exists(obj) {
@@ -258,6 +267,7 @@ impl Task {
         }
     }
 
+    #[lock_annotations::mhp("ta_crypto")]
     pub(crate) fn sys_cryp_obj_populate(
         &self,
         obj: TeeObjHandle,
@@ -276,6 +286,7 @@ impl Task {
         tee_obj_map.populate(obj, attrs)
     }
 
+    #[lock_annotations::mhp("ta_crypto")]
     pub(crate) fn sys_cryp_obj_copy(
         &self,
         dst: TeeObjHandle,
