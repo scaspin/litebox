@@ -107,6 +107,7 @@ impl<Platform: RawSyncPrimitivesProvider + RawPointerProvider + TimeProvider>
     /// Note: this function is similar to `FUTEX_WAIT` or `FUTEX_WAIT_BITSET`. However, independent
     /// of which of the two is in use, this always uses relative durations. If an absolute duration
     /// is needed, it is up to the caller to convert it to a relative duration.
+    #[lock_annotations::mhp("futex")]
     pub fn wait(
         &self,
         futex_addr: Platform::RawMutPointer<u32>,
@@ -216,6 +217,7 @@ impl<Platform: RawSyncPrimitivesProvider + RawPointerProvider + TimeProvider>
     /// `bitset` are valid waiters to wake up.
     ///
     /// Returns the number of waiters that were woken up.
+    #[lock_annotations::mhp("futex")]
     pub fn wake(
         &self,
         futex_addr: Platform::RawMutPointer<u32>,
