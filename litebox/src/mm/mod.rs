@@ -44,6 +44,18 @@ where
         Self { vmem }
     }
 
+    /// sg-eval (#270): models the page-fault reentry hazard. `op` (a caller
+    /// callback that writes user memory) may trigger the page-fault handler,
+    /// which re-acquires `self.vmem` on the SAME thread. In the FIXED code the
+    /// `self.vmem` guard is dropped before `op` runs, so this reentrant acquire
+    /// happens with nothing held — no self-deadlock. Runtime no-op.
+    /// A transient reentrant acquire+release of `self.vmem`: the page-fault
+    /// handler locks `self.vmem`, services the fault, and unlocks. Balanced, so
+    /// it self-deadlocks only when the CALLER already holds `self.vmem`.
+    #[lock_annotations::foreign(acquire, on = self.vmem)]
+    #[lock_annotations::foreign(release, on = self.vmem)]
+    fn sg_eval_page_fault_reentry(&self) {}
+
     /// Create a mapping with the given flags.
     ///
     /// `suggested_new_address` is the hint address for where to create the pages if it is not `None`.
@@ -82,6 +94,9 @@ where
         };
         // call the user function with the pages
         // Note `op` may trigger page fault handler which requires write lock to `vmem`.
+        // sg-eval (#270): guard already dropped above, so this reentry acquires
+        // `self.vmem` with nothing held -> no self-deadlock.
+        self.sg_eval_page_fault_reentry();
         if let Err(e) = op(addr) {
             // remove the mapping if the user function fails
             let mut vmem = self.vmem.write();
