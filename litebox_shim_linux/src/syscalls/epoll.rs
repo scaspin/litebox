@@ -422,6 +422,17 @@ impl GetFd for litebox::sync::RwLockReadGuard<'_, Platform, crate::Descriptors> 
     }
 }
 
+/// sg-eval (#434): models the poll BLOCK (`condvar.block_or_timeout` / `.block`,
+/// a bespoke raw-mutex-as-condvar NOT recognized as a std wait) as a wait on
+/// `condvar`. Holding the fd-table read lock ACROSS this wait is the hold-and-
+/// wait deadlock (the thread blocks holding the fd table while an fd writer that
+/// would deliver the event is starved). Runtime no-op; the annotation only
+/// asserts the wait for syncgraph.
+#[lock_annotations::foreign(wait, on = condvar, blocks)]
+fn sg_eval_poll_wait<M>(condvar: &M) {
+    let _ = condvar;
+}
+
 impl PollSet {
     /// Returns a new empty `PollSet` with the given interest capacity.
     pub fn with_capacity(capacity: usize) -> Self {
@@ -498,6 +509,8 @@ impl PollSet {
 
             let remaining_time =
                 timeout.map(|t| t.saturating_sub(platform.now().duration_since(&start_time)));
+            // sg-eval (#434): the poll block below runs while `fds` may still be held.
+            sg_eval_poll_wait(&condvar);
             if let Some(remaining_time) = remaining_time {
                 if matches!(
                     condvar.block_or_timeout(0, remaining_time),
