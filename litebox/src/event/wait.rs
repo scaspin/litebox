@@ -212,6 +212,8 @@ impl<Platform: RawSyncPrimitivesProvider + ThreadProvider> ThreadHandle<Platform
     /// [`WaitContext::sleep`], it will be woken up to reevaluate its wait
     /// condition and interrupt condition. If it is running guest code, the
     /// platform will interrupt the thread and re-enter the shim.
+    #[lock_annotations::define_lock(WAITER = self.waker.0.condvar)]
+    #[lock_annotations::foreign(wake, on = self.waker.0.condvar)]
     pub fn interrupt(&self) {
         let condvar = &self.waker.0.condvar;
         let v = condvar.underlying_atomic().fetch_update(

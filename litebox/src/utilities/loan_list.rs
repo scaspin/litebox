@@ -151,6 +151,17 @@ impl<Platform: RawSyncPrimitivesProvider, T> LoanList<Platform, T> {
     }
 
     /// Removes a node from the list, waiting until it is no longer loaned out.
+    //
+    // The owner blocks on the per-entry `state` gate until the loaner returns
+    // the entry. This marker is deliberately imprecise: `on = node.data.state`
+    // is arg-rooted, so it lowers to a per-frame `Formal` anchor that does NOT
+    // unify with the wake side in `LoanedEntry::drop`. It therefore documents
+    // the gate (and feeds MHP) without ever pairing — which is SOUND: the
+    // lost-wakeup check ignores non-`Static` anchors, so this can neither raise
+    // a false lost-wakeup nor mask a real one. Precise per-loan pairing would
+    // need a per-object key (the node identity), which the surface can't yet
+    // express. `blocks` marks it loop-guarded (the body re-checks in a loop).
+    #[lock_annotations::foreign(wait, on = node.data.state, blocks)]
     fn remove_node(&self, node: &Node<EntryData<Platform, T>>) {
         loop {
             let v = node
@@ -379,6 +390,12 @@ impl<Platform: RawSyncPrimitivesProvider, T> Deref for LoanedEntry<Platform, T> 
 }
 
 impl<Platform: RawSyncPrimitivesProvider, T> Drop for LoanedEntry<Platform, T> {
+    // Dropping the loan wakes the owner blocked in `LoanList::remove_node`. Like
+    // the wait side, this marker is intentionally imprecise: `on =
+    // self.entry.data.state` lowers to a per-frame `Formal` anchor that does not
+    // unify with the waiter, so it documents the wake without pairing. Sound by
+    // construction (non-`Static` anchors are never flagged for missing-notify).
+    #[lock_annotations::foreign(wake, on = self.entry.data.state)]
     fn drop(&mut self) {
         let entry = unsafe { &*self.entry };
         let state = entry.data.state.underlying_atomic();

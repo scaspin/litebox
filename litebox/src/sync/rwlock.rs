@@ -392,6 +392,7 @@ impl<Platform: RawSyncPrimitivesProvider> RawRwLock<Platform> {
 ///
 /// A notable difference from Rust's `std` is that this `RwLock` does not maintain any poisoning
 /// information.
+#[lock_annotations::lock]
 pub struct RwLock<Platform: RawSyncPrimitivesProvider, T: ?Sized> {
     raw: RawRwLock<Platform>,
     /// Creation location and registration state for lock tracing.
@@ -435,6 +436,7 @@ impl<Platform: RawSyncPrimitivesProvider, T> core::ops::Deref for RwLockReadGuar
     }
 }
 
+#[lock_annotations::lock_guard]
 impl<Platform: RawSyncPrimitivesProvider, T> Drop for RwLockReadGuard<'_, Platform, T> {
     fn drop(&mut self) {
         #[cfg(feature = "lock_tracing")]
@@ -466,6 +468,7 @@ impl<Platform: RawSyncPrimitivesProvider, T> core::ops::DerefMut
     }
 }
 
+#[lock_annotations::lock_guard]
 impl<Platform: RawSyncPrimitivesProvider, T> Drop for RwLockWriteGuard<'_, Platform, T> {
     fn drop(&mut self) {
         #[cfg(feature = "lock_tracing")]
@@ -489,6 +492,7 @@ impl<Platform: RawSyncPrimitivesProvider, T> core::ops::Deref
     }
 }
 
+#[lock_annotations::lock_guard]
 impl<Platform: RawSyncPrimitivesProvider, T> Drop for MappedRwLockReadGuard<'_, Platform, T> {
     fn drop(&mut self) {
         #[cfg(feature = "lock_tracing")]
@@ -519,6 +523,7 @@ impl<Platform: RawSyncPrimitivesProvider, T> core::ops::DerefMut
     }
 }
 
+#[lock_annotations::lock_guard]
 impl<Platform: RawSyncPrimitivesProvider, T> Drop for MappedRwLockWriteGuard<'_, Platform, T> {
     fn drop(&mut self) {
         #[cfg(feature = "lock_tracing")]
@@ -599,6 +604,7 @@ impl<'a, Platform: RawSyncPrimitivesProvider, T> RwLockWriteGuard<'a, Platform, 
 impl<Platform: RawSyncPrimitivesProvider, T> RwLock<Platform, T> {
     /// Returns a new reader/writer lock wrapping the given value.
     #[inline]
+    #[lock_annotations::lock_new]
     #[cfg_attr(feature = "lock_tracing", track_caller)]
     pub const fn new(val: T) -> Self {
         Self {
@@ -613,6 +619,7 @@ impl<Platform: RawSyncPrimitivesProvider, T> RwLock<Platform, T> {
 impl<Platform: RawSyncPrimitivesProvider, T> RwLock<Platform, T> {
     #[inline]
     #[track_caller]
+    #[lock_annotations::lock_acquire(read)]
     pub fn read(&self) -> RwLockReadGuard<'_, Platform, T> {
         #[cfg(feature = "lock_tracing")]
         self.creation
@@ -633,6 +640,7 @@ impl<Platform: RawSyncPrimitivesProvider, T> RwLock<Platform, T> {
 
     #[inline]
     #[track_caller]
+    #[lock_annotations::lock_acquire]
     pub fn write(&self) -> RwLockWriteGuard<'_, Platform, T> {
         #[cfg(feature = "lock_tracing")]
         self.creation

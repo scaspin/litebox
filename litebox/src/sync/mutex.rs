@@ -162,6 +162,7 @@ impl<Platform: RawSyncPrimitivesProvider, T: ?Sized> core::ops::DerefMut
     }
 }
 
+#[lock_annotations::lock_guard]
 impl<Platform: RawSyncPrimitivesProvider, T: ?Sized> Drop for MutexGuard<'_, Platform, T> {
     fn drop(&mut self) {
         #[cfg(feature = "lock_tracing")]
@@ -181,6 +182,7 @@ impl<Platform: RawSyncPrimitivesProvider, T: ?Sized> Drop for MutexGuard<'_, Pla
 ///
 /// A notable difference from Rust's `std` is that this `Mutex` does not maintain any poisoning
 /// information, thus its [`lock`](Self::lock) functionality directly returns a locked guard.
+#[lock_annotations::lock]
 pub struct Mutex<Platform: RawSyncPrimitivesProvider, T: ?Sized> {
     raw: SpinEnabledRawMutex<Platform>,
     /// Creation location and registration state for lock tracing.
@@ -193,6 +195,7 @@ pub struct Mutex<Platform: RawSyncPrimitivesProvider, T: ?Sized> {
 impl<Platform: RawSyncPrimitivesProvider, T> Mutex<Platform, T> {
     /// Returns a new mutex wrapping the given value.
     #[inline]
+    #[lock_annotations::lock_new]
     #[cfg_attr(feature = "lock_tracing", track_caller)]
     pub const fn new(val: T) -> Self {
         Self {
@@ -216,6 +219,7 @@ unsafe impl<Platform: RawSyncPrimitivesProvider, T: Send> Sync for Mutex<Platfor
 impl<Platform: RawSyncPrimitivesProvider, T> Mutex<Platform, T> {
     #[inline]
     #[track_caller]
+    #[lock_annotations::lock_acquire]
     pub fn lock(&self) -> MutexGuard<'_, Platform, T> {
         #[cfg(feature = "lock_tracing")]
         self.creation
