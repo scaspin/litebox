@@ -545,6 +545,7 @@ pub struct RawMutex {
 }
 
 impl RawMutex {
+    #[lock_annotations::mhp("rawmutex")]
     fn block_or_maybe_timeout(
         &self,
         val: u32,
@@ -644,6 +645,7 @@ impl litebox::platform::RawMutex for RawMutex {
         &self.inner
     }
 
+    #[lock_annotations::mhp("rawmutex")]
     fn wake_many(&self, n: usize) -> usize {
         assert!(n > 0);
         let n: u32 = n.try_into().unwrap();
@@ -987,6 +989,7 @@ enum FutexOperation {
 
 /// Safer invocation of the Linux futex syscall, with the "timeout" variant of the arguments.
 #[expect(clippy::similar_names, reason = "sec/nsec are as needed by libc")]
+#[lock_annotations::foreign(wait, on = uaddr, blocks)]
 fn futex_timeout(
     uaddr: &AtomicU32,
     futex_op: FutexOperation,
@@ -1031,6 +1034,7 @@ fn futex_timeout(
 }
 
 /// Safer invocation of the Linux futex syscall, with the "val2" variant of the arguments.
+#[lock_annotations::foreign(wake, on = uaddr)]
 fn futex_val2(
     uaddr: &AtomicU32,
     futex_op: FutexOperation,

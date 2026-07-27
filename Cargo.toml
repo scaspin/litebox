@@ -13,7 +13,7 @@ members = [
 ]
 
 # exclude binaries which need different toolchain and build target.
-exclude = [
+exclude = ["sg_eval_vendor", 
     "litebox_platform_lvbs",
     "litebox_runner_lvbs"
 ]
