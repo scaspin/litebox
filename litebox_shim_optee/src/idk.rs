@@ -40,6 +40,7 @@ enum EcdsaCurve {
     P521 = 0x03,
 }
 
+#[lock_annotations::mhp("vsm")]
 pub fn generate_identity_signing_key(public_key_pa: u64, key_alg: u64) -> i64 {
     match generate_identity_signing_key_inner(public_key_pa, key_alg) {
         Ok(res) => res,
