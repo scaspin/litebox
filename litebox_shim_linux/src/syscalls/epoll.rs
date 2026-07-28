@@ -366,6 +366,7 @@ impl ReadySet {
         }
     }
 
+    #[lock_annotations::define_lock(EPOLL_READY = self.entries)]
     fn push(&self, entry: &EpollEntry) {
         if !entry.is_enabled.load(core::sync::atomic::Ordering::Relaxed) {
             // the entry is disabled
@@ -384,6 +385,7 @@ impl ReadySet {
         self.pollee.notify_observers(Events::IN);
     }
 
+    #[lock_annotations::define_lock(EPOLL_READY = self.entries)]
     fn pop_multiple(&self, maxevents: usize, events: &mut Vec<EpollEvent>) {
         let mut entries = self.entries.lock();
         let mut nums = entries.len();
@@ -424,6 +426,7 @@ impl ReadySet {
         }
     }
 
+    #[lock_annotations::define_lock(EPOLL_READY = self.entries)]
     fn check_io_events(&self) -> Events {
         if self.entries.lock().is_empty() {
             Events::empty()
