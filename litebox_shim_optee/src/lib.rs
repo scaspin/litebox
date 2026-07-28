@@ -22,7 +22,7 @@ use litebox::{
     shim::ContinueOperation,
     utils::TruncateExt,
 };
-use litebox_common_linux::{MapFlags, ProtFlags, errno::Errno};
+use litebox_common_linux::{MapFlags, ProtFlags, errno::Errno, vmap::GlobalVmapManager};
 use litebox_common_optee::{
     LdelfArg, LdelfSyscallRequest, SyscallRequest, TaFlags, TeeAlgorithm, TeeAlgorithmClass,
     TeeAttributeType, TeeCrypStateHandle, TeeHandleFlag, TeeIdentity, TeeLogin, TeeObjHandle,
@@ -35,7 +35,9 @@ pub mod session;
 pub(crate) mod syscalls;
 
 pub mod msg_handler;
-pub mod ptr;
+
+#[cfg(feature = "platform_lvbs")]
+pub mod idk;
 
 // Re-export session management types for convenience
 pub use session::{OpenSessionTarget, SessionManager, SessionToken, TaInstance};
@@ -479,23 +481,35 @@ impl Task {
                 ret_orig,
             } => {
                 if let Some(mut params_copied) = params.read_at_offset(0) {
-                    self.sys_invoke_ta_command(
+                    let result = self.sys_invoke_ta_command(
                         ta_sess_id,
                         cancel_req_to,
                         cmd_id,
                         &mut params_copied,
                         ret_orig,
-                    )
-                    .and_then(|cleanup| {
-                        if !params_copied.needs_copy_back()
-                            || params.write_at_offset(0, params_copied).is_some()
-                        {
-                            Ok(())
-                        } else {
-                            cleanup.run(self);
-                            Err(TeeResult::AccessDenied)
+                    );
+                    match result {
+                        Ok(cleanup) => {
+                            if !params_copied.needs_copy_back()
+                                || params.write_at_offset(0, params_copied).is_some()
+                            {
+                                Ok(())
+                            } else {
+                                cleanup.run(self);
+                                Err(TeeResult::AccessDenied)
+                            }
                         }
-                    })
+                        Err(TeeResult::ShortBuffer) => {
+                            if !params_copied.needs_copy_back()
+                                || params.write_at_offset(0, params_copied).is_some()
+                            {
+                                Err(TeeResult::ShortBuffer)
+                            } else {
+                                Err(TeeResult::AccessDenied)
+                            }
+                        }
+                        Err(error) => Err(error),
+                    }
                 } else {
                     Err(TeeResult::BadParameters)
                 }
@@ -959,11 +973,23 @@ where
     {
         let mut length: usize = length.trunc();
         let mut kernel_buf = vec![0u8; length];
-        syscall_fn(task, state, &src_slice, &mut kernel_buf, &mut length).and_then(|()| {
-            let _ = dst_len.write_at_offset(0, length as u64);
-            dst.copy_from_slice(0, &kernel_buf[..length])
-                .ok_or(TeeResult::OutOfMemory)
-        })
+        let result = syscall_fn(task, state, &src_slice, &mut kernel_buf, &mut length);
+        match result {
+            Ok(()) => {
+                dst.copy_from_slice(0, &kernel_buf[..length])
+                    .ok_or(TeeResult::OutOfMemory)?;
+                dst_len
+                    .write_at_offset(0, length as u64)
+                    .ok_or(TeeResult::AccessDenied)
+            }
+            Err(TeeResult::ShortBuffer) => {
+                dst_len
+                    .write_at_offset(0, length as u64)
+                    .ok_or(TeeResult::AccessDenied)?;
+                Err(TeeResult::ShortBuffer)
+            }
+            Err(error) => Err(error),
+        }
     } else {
         Err(TeeResult::BadParameters)
     }
@@ -1498,8 +1524,20 @@ impl SessionIdPool {
     }
 }
 
-pub type NormalWorldConstPtr<T, const ALIGN: usize> = crate::ptr::PhysConstPtr<T, ALIGN>;
-pub type NormalWorldMutPtr<T, const ALIGN: usize> = crate::ptr::PhysMutPtr<T, ALIGN>;
+/// Type-level marker for the normal-world physical-pointer provider.
+pub enum Vmap {}
+
+impl<const ALIGN: usize> GlobalVmapManager<ALIGN> for Vmap {
+    type Manager = litebox_platform_multiplex::Platform;
+    fn manager() -> &'static Self::Manager {
+        litebox_platform_multiplex::platform()
+    }
+}
+
+pub type NormalWorldConstPtr<T, const ALIGN: usize> =
+    litebox_common_linux::physical_pointers::PhysConstPtr<T, ALIGN, Vmap>;
+pub type NormalWorldMutPtr<T, const ALIGN: usize> =
+    litebox_common_linux::physical_pointers::PhysMutPtr<T, ALIGN, Vmap>;
 
 #[cfg(test)]
 mod test_utils {

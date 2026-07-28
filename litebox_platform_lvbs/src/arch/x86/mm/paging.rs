@@ -42,9 +42,6 @@ const PML4_SHIFT: u32 = 39;
 /// Mask for a 9-bit page-table index (512 entries per table).
 const PML4_INDEX_MASK: u64 = 0x1FF;
 
-/// Number of bytes of virtual address space covered by one PML4 slot (512 GiB).
-const PML4_SLOT_SIZE: u64 = 1 << PML4_SHIFT;
-
 /// PML4 index of the first VTL1-kernel slot (`PA + KERNEL_OFFSET`).
 ///
 /// Only slots `>= KERNEL_PML4_START` are safe to share between page tables:
@@ -308,10 +305,9 @@ impl<M: MemoryProvider, const ALIGN: usize> X64PageTable<'_, M, ALIGN> {
         // `0 ..= KERNEL_PML4_START * PML4_SLOT_SIZE - 1`. The kernel region at
         // and above `KERNEL_PML4_START` is base-owned/shared.
         let start = Page::<Size4KiB>::from_start_address(VirtAddr::new(0)).unwrap();
-        let end = Page::<Size4KiB>::containing_address(VirtAddr::new(
-            KERNEL_PML4_START as u64 * PML4_SLOT_SIZE - 1,
-        ));
+        let end = Page::<Size4KiB>::containing_address(VirtAddr::new(crate::KERNEL_OFFSET - 1));
         // Safety: The page table is being destroyed and will not be reused.
+        // This function crosses the non-canonical hole.
         unsafe {
             self.inner
                 .lock()
@@ -563,41 +559,12 @@ impl<M: MemoryProvider, const ALIGN: usize> X64PageTable<'_, M, ALIGN> {
         flags: PageTableFlags,
         exec_ranges: Option<&[Range<PhysAddr>]>,
     ) -> Result<*mut u8, MapToError<Size4KiB>> {
-        self.map_phys_frame_range_with(frame_range, flags, exec_ranges, M::pa_to_va)
-    }
-
-    /// Map physical frame range to the page table using the direct-map offset
-    /// ([`MemoryProvider::pa_to_va_direct`], i.e., `PA + GVA_OFFSET`).
-    ///
-    /// Use this for VTL0 / external physical memory that should be accessible
-    /// through the direct-map region.
-    pub(crate) fn map_phys_frame_range_direct(
-        &self,
-        frame_range: PhysFrameRange<Size4KiB>,
-        flags: PageTableFlags,
-        exec_ranges: Option<&[Range<PhysAddr>]>,
-    ) -> Result<*mut u8, MapToError<Size4KiB>> {
-        self.map_phys_frame_range_with(frame_range, flags, exec_ranges, M::pa_to_va_direct)
-    }
-
-    /// Common implementation for [`Self::map_phys_frame_range`] and
-    /// [`Self::map_phys_frame_range_direct`].
-    ///
-    /// `pa_to_va` selects how physical addresses are translated to virtual
-    /// addresses — either via `KERNEL_OFFSET` or `GVA_OFFSET`.
-    fn map_phys_frame_range_with(
-        &self,
-        frame_range: PhysFrameRange<Size4KiB>,
-        flags: PageTableFlags,
-        exec_ranges: Option<&[Range<PhysAddr>]>,
-        pa_to_va: fn(PhysAddr) -> VirtAddr,
-    ) -> Result<*mut u8, MapToError<Size4KiB>> {
         let mut allocator = PageTableAllocator::<M>::new();
 
         let mut inner = self.inner.lock();
         for target_frame in frame_range {
             let page: Page<Size4KiB> =
-                Page::containing_address(pa_to_va(target_frame.start_address()));
+                Page::containing_address(M::pa_to_va(target_frame.start_address()));
 
             match inner.translate(page.start_address()) {
                 TranslateResult::Mapped {
@@ -642,7 +609,14 @@ impl<M: MemoryProvider, const ALIGN: usize> X64PageTable<'_, M, ALIGN> {
                 flags
             };
             // Parent entries use a stable permissive constant, not leaf-derived flags.
-            let table_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+            //
+            // ACCESSED and DIRTY are pre-set here (mirroring the Linux kernel's
+            // `_KERNPG_TABLE`) so the CPU's page-table walker doesn't need an
+            // atomic read-modify-write on this entry the first time it's traversed.
+            let table_flags = PageTableFlags::PRESENT
+                | PageTableFlags::WRITABLE
+                | PageTableFlags::ACCESSED
+                | PageTableFlags::DIRTY;
 
             match unsafe {
                 inner.map_to_with_table_flags(
@@ -659,12 +633,12 @@ impl<M: MemoryProvider, const ALIGN: usize> X64PageTable<'_, M, ALIGN> {
         }
 
         let start_page =
-            Page::<Size4KiB>::containing_address(pa_to_va(frame_range.start.start_address()));
+            Page::<Size4KiB>::containing_address(M::pa_to_va(frame_range.start.start_address()));
         let count =
             (frame_range.end.start_address() - frame_range.start.start_address()) / Size4KiB::SIZE;
         flush_tlb_range(start_page, count.trunc());
 
-        Ok(pa_to_va(frame_range.start.start_address()).as_mut_ptr())
+        Ok(M::pa_to_va(frame_range.start.start_address()).as_mut_ptr())
     }
 
     /// Map non-contiguous physical frames to virtually contiguous addresses.
@@ -686,7 +660,6 @@ impl<M: MemoryProvider, const ALIGN: usize> X64PageTable<'_, M, ALIGN> {
     /// # Behavior
     /// - Any existing mapping is treated as an error
     /// - On error, all pages mapped by this call are unmapped (atomic)
-    #[cfg(feature = "optee_syscall")]
     pub(crate) fn map_non_contiguous_phys_frames(
         &self,
         frames: &[PhysFrame<Size4KiB>],
@@ -702,7 +675,13 @@ impl<M: MemoryProvider, const ALIGN: usize> X64PageTable<'_, M, ALIGN> {
             .map_err(|_| MapToError::FrameAllocationFailed)?;
         let end_page = start_page + frames.len() as u64;
 
-        let table_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+        // ACCESSED and DIRTY are pre-set here (mirroring the Linux kernel's
+        // `_KERNPG_TABLE`) so the CPU's page-table walker doesn't need an
+        // atomic read-modify-write on this entry the first time it's traversed.
+        let table_flags = PageTableFlags::PRESENT
+            | PageTableFlags::WRITABLE
+            | PageTableFlags::ACCESSED
+            | PageTableFlags::DIRTY;
         for (page, &target_frame) in Page::range(start_page, end_page).zip(frames.iter()) {
             // Note: Since we lock the entire page table for the duration of this function (`self.inner.lock()`),
             // there should be no concurrent modifications to the page table. If we allow concurrent mappings
@@ -755,7 +734,6 @@ impl<M: MemoryProvider, const ALIGN: usize> X64PageTable<'_, M, ALIGN> {
     ///
     /// Note: The caller must already hold the page table lock (`self.inner`).
     /// This function accepts the locked `MappedPageTable` directly.
-    #[cfg(feature = "optee_syscall")]
     fn rollback_mapped_pages(
         inner: &mut MappedPageTable<'_, FrameMapping<M>>,
         pages: x86_64::structures::paging::page::PageRangeInclusive<Size4KiB>,
@@ -925,9 +903,14 @@ impl<M: MemoryProvider, const ALIGN: usize> PageTableImpl<ALIGN> for X64PageTabl
                 let mut allocator = PageTableAllocator::<M>::new();
                 // TODO: if it is file-backed, we need to read the page from file
                 let frame = PageTableAllocator::<M>::allocate_frame(true).unwrap();
+                // ACCESSED and DIRTY are pre-set here (mirroring the Linux kernel's
+                // `_KERNPG_TABLE`) so the CPU's page-table walker doesn't need an
+                // atomic read-modify-write on this entry the first time it's traversed.
                 let table_flags = PageTableFlags::PRESENT
                     | PageTableFlags::WRITABLE
-                    | PageTableFlags::USER_ACCESSIBLE;
+                    | PageTableFlags::USER_ACCESSIBLE
+                    | PageTableFlags::ACCESSED
+                    | PageTableFlags::DIRTY;
                 match unsafe {
                     inner.map_to_with_table_flags(
                         page,

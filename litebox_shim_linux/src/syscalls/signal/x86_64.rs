@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-use crate::MutPtr;
+use crate::ShimPlatform;
+use crate::UserPtrMut;
 use crate::syscalls::signal::{DeliverFault, SignalState};
 use core::mem::offset_of;
-use litebox::platform::{RawConstPointer as _, RawMutPointer as _};
 use litebox::utils::{ReinterpretUnsignedExt as _, TruncateExt as _};
 use litebox_common_linux::{
     PtRegs,
@@ -44,7 +44,7 @@ pub(super) fn get_signal_frame(sp: usize, _action: &SigAction) -> usize {
     frame_addr
 }
 
-impl SignalState {
+impl<Platform: ShimPlatform> SignalState<Platform> {
     pub(super) fn write_signal_frame(
         &self,
         frame_addr: usize,
@@ -98,8 +98,10 @@ impl SignalState {
             siginfo: siginfo.clone(),
         };
 
-        let frame_ptr = MutPtr::from_usize(frame_addr);
-        frame_ptr.write_at_offset(0, frame).ok_or(DeliverFault)?;
+        let frame_ptr = UserPtrMut::from_usize(frame_addr);
+        frame_ptr
+            .write_at_offset::<Platform>(0, frame)
+            .ok_or(DeliverFault)?;
 
         ctx.rsp = frame_addr;
         ctx.rip = action.sigaction;
