@@ -282,6 +282,7 @@ fn heki() -> &'static litebox_service_heki::Heki<LvbsVtl0Gate> {
 /// The Hyper-V mechanics behind both stay inside the platform, so nothing
 /// here talks to the hypervisor. As the VSM composition root, the runner
 /// mints the gate and owns the HEKI service.
+#[lock_annotations::mhp_group("vsm")]
 fn vsm_dispatch(func_id: VsmFunction, params: &[u64]) -> i64 {
     use litebox_common_lvbs::Vtl1Gate as _;
 
