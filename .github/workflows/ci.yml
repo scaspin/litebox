@@ -275,10 +275,11 @@ jobs:
           #   access since it needs to actually access the file-system, pull in
           #   relevant files, and then actually trigger LiteBox itself.
           #
-          # - `litebox_shim_optee` is expected to work with
-          #   `litebox_platform_lvbs` (`no_std`) and
-          #   `litebox_platform_linux_userland` (for debugging) which
-          #   depends on `litebox_platform_multiplex`.
+          # - `litebox_shim_optee` is `no_std`, but the builtin
+          #   `x86_64-unknown-none` target is soft-float, which its crypto
+          #   dependencies cannot lower. The shipped target,
+          #   `litebox_runner_lvbs/x86_64_vtl1.json`, satisfies that
+          #   requirement.
           #
           # - `litebox_syscall_rewriter` is allowed to have `std` access since
           #   it is a helper binary that runs in userland to AOT "compile" ELFs.
@@ -287,6 +288,9 @@ jobs:
           #   userland CLI tool that packages ELF programs for LiteBox.
           #
           # - `litebox_runner_snp` is `no_std` but requires custom target to build
+          #
+          # - `litebox_service_heki` is excluded for the same reason as
+          #   `litebox_shim_optee` above; it also pulls in crypto dependencies.
           #
           # - `dev_tests` is meant to only be used for tests, and thus can
           #   safely use std.
@@ -307,6 +311,7 @@ jobs:
             -not -path './litebox_syscall_rewriter/Cargo.toml' \
             -not -path './litebox_packager/Cargo.toml' \
             -not -path './litebox_runner_snp/Cargo.toml' \
+            -not -path './litebox_service_heki/Cargo.toml' \
             -not -path './dev_tests/Cargo.toml' \
             -not -path './dev_bench/Cargo.toml' \
             -print0 | \

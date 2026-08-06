@@ -13,11 +13,12 @@ use litebox::{
     utils::{ReinterpretSignedExt, TruncateExt},
 };
 use litebox_common_linux::errno::Errno;
-use litebox_common_lvbs::{NUM_VTLCALL_PARAMS, VsmFunction};
+use litebox_common_lvbs::{NUM_VTLCALL_PARAMS, VsmError, VsmFunction};
 use litebox_common_optee::{
     OpteeMessageCommand, OpteeMsgArgs, OpteeRpcArgs, OpteeSmcArgs, OpteeSmcResult,
     OpteeSmcReturnCode, TeeOrigin, TeeResult, UteeEntryFunc, UteeParams, optee_msg_args_total_size,
 };
+use litebox_platform_lvbs::mshv::vsm::{LvbsVtl0Gate, LvbsVtl0PrivilegedWriter, LvbsVtl1Gate};
 use litebox_platform_lvbs::{
     arch::{gdt, instrs::hlt_loop, interrupts, timer},
     debug_serial_println,
@@ -25,7 +26,6 @@ use litebox_platform_lvbs::{
     mm::MemoryProvider,
     mshv::{
         hvcall,
-        vsm::vsm_dispatch,
         vsm_intercept::raise_vtl0_gp_fault,
         vtl_switch::{vtl_switch, vtl_switch_init},
         vtl1_mem_layout::{
@@ -262,6 +262,63 @@ fn vtlcall_dispatch(params: &[u64; NUM_VTLCALL_PARAMS]) -> i64 {
             litebox_shim_optee::idk::generate_identity_signing_key(public_key_pa, key_alg)
         }
         _ => vsm_dispatch(func_id, &params[1..]),
+    }
+}
+
+/// Returns this VTL1 kernel's HEKI service: a single long-lived instance owned
+/// by the runner (the VSM composition root), initialized on first access.
+///
+/// This is where the abstract service is bound to the concrete platform gate;
+/// the service holds it for its lifetime, so handlers need no gate argument.
+fn heki() -> &'static litebox_service_heki::Heki<LvbsVtl0Gate> {
+    static HEKI: spin::Once<litebox_service_heki::Heki<LvbsVtl0Gate>> = spin::Once::new();
+    HEKI.call_once(|| litebox_service_heki::Heki::new(LvbsVtl0Gate::mint()))
+}
+
+/// Dispatch a VSM function to its handler and return the result.
+///
+/// Routes each call to the subsystem that owns it: HEKI (VTL0 protection) to
+/// the service, which only gets `Vtl0Gate`, and VTL1 setup `Vtl1Gate`.
+/// The Hyper-V mechanics behind both stay inside the platform, so nothing
+/// here talks to the hypervisor. As the VSM composition root, the runner
+/// mints the gate and owns the HEKI service.
+fn vsm_dispatch(func_id: VsmFunction, params: &[u64]) -> i64 {
+    use litebox_common_lvbs::Vtl1Gate as _;
+
+    let vtl1 = LvbsVtl1Gate::mint();
+    let heki = heki();
+    let result: Result<i64, VsmError> = match func_id {
+        VsmFunction::EnableAPsVtl => vtl1.enable_aps_vtl(params[0]).map(|()| 0),
+        VsmFunction::BootAPs => vtl1.boot_aps(params[0]).map(|()| 0),
+        VsmFunction::LockRegs => heki.lock_regs(),
+        VsmFunction::SignalEndOfBoot => {
+            vtl1.signal_end_of_boot();
+            Ok(0)
+        }
+        VsmFunction::ProtectMemory => heki.protect_memory(params[0], params[1]),
+        VsmFunction::LoadKData => heki.load_kdata(params[0], params[1]),
+        VsmFunction::ValidateModule => heki.validate_guest_module(params[0], params[1], params[2]),
+        VsmFunction::FreeModuleInit => {
+            heki.free_guest_module_init(params[0].reinterpret_as_signed())
+        }
+        VsmFunction::UnloadModule => heki.unload_guest_module(params[0].reinterpret_as_signed()),
+        VsmFunction::CopySecondaryKey => heki.copy_secondary_key(params[0], params[1]),
+        VsmFunction::KexecValidate => heki.kexec_validate(params[0], params[1], params[2]),
+        VsmFunction::PatchText => {
+            heki.patch_text(&LvbsVtl0PrivilegedWriter::mint(), params[0], params[1])
+        }
+        VsmFunction::AllocateRingbufferMemory => {
+            heki.allocate_ringbuffer_memory(params[0], params[1])
+        }
+        VsmFunction::SetPlatformRootKey => vtl1.set_platform_root_key(params[0]).map(|()| 0),
+        VsmFunction::GenerateIdentitySigningKey => {
+            Err(VsmError::OperationNotSupported("Identity key generation"))
+        }
+        VsmFunction::OpteeMessage => Err(VsmError::OperationNotSupported("OP-TEE communication")),
+    };
+    match result {
+        Ok(value) => value,
+        Err(e) => Errno::from(e).as_neg().into(),
     }
 }
 
