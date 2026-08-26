@@ -73,7 +73,7 @@ jobs:
 
       - name: Upload Antelope results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: antelope-results
           path: litebox/antelope-results.json
