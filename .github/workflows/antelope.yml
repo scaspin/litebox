@@ -79,5 +79,5 @@ jobs:
         with:
           name: antelope-results
           path: litebox/antelope-results.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
