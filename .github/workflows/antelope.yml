@@ -56,7 +56,7 @@ jobs:
       - name: Run Antelope
         shell: bash
         run: |
-          antelope litebox \
+          antelope \
             --cross-crate \
             --format json \
             --output antelope-results.json \
