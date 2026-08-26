@@ -22,13 +22,15 @@ jobs:
     steps:
       - name: Check out LiteBox
         uses: actions/checkout@v6
+        with:
+          path: litebox
 
       - name: Check out Antelope
         uses: actions/checkout@v6
         with:
           repository: microsoft/antelope
           ref: main
-          path: .tools/antelope
+          path: antelope
           token: ${{ secrets.ANTELOPE_TOKEN }}
           persist-credentials: false
 
@@ -36,7 +38,7 @@ jobs:
         shell: bash
         run: |
           TOOLCHAIN="$(awk -F'"' '/channel/{print $2}' \
-            .tools/antelope/antelope/rust-toolchain.toml)"
+            "$GITHUB_WORKSPACE/antelope/antelope/rust-toolchain.toml")"
 
           echo "ANTELOPE_TOOLCHAIN=$TOOLCHAIN" >> "$GITHUB_ENV"
 
@@ -50,12 +52,13 @@ jobs:
         run: |
           cargo +"$ANTELOPE_TOOLCHAIN" install \
             --locked \
-            --path .tools/antelope/antelope \
+            --path "$GITHUB_WORKSPACE/antelope/antelope" \
             --root "$RUNNER_TEMP/antelope-install"
 
           echo "$RUNNER_TEMP/antelope-install/bin" >> "$GITHUB_PATH"
 
       - name: Run Antelope
+        working-directory: litebox
         shell: bash
         run: |
           antelope \
@@ -73,6 +76,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: antelope-results
-          path: antelope-results.json
+          path: litebox/antelope-results.json
           if-no-files-found: warn
           retention-days: 14
