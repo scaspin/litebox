@@ -20,15 +20,15 @@ use hashbrown::HashSet;
 use litebox::utils::TruncateExt;
 use litebox_common_linux::vmap::PhysPageAddr;
 use litebox_common_lvbs::{
-    mod_mem_type_to_mem_attr, HekiKdataType, HekiKernelInfo, HekiKexecType, HekiPage, HekiPatch,
-    Kimage, MemAttr, ModMemType, ReservationStatus, VsmError, Vtl0Gate, Vtl0PrivilegedWrite,
-    KEXEC_SEGMENT_MAX, PAGE_SIZE,
+    HekiKdataType, HekiKernelInfo, HekiKexecType, HekiPage, HekiPatch, KEXEC_SEGMENT_MAX, Kimage,
+    MemAttr, ModMemType, PAGE_SIZE, ReservationStatus, VsmError, Vtl0Gate, Vtl0PrivilegedWrite,
+    mod_mem_type_to_mem_attr,
 };
-use x509_cert::{der::Decode, Certificate};
 use x86_64::{
-    structures::paging::{frame::PhysFrameRange, PageSize, PhysFrame, Size4KiB},
     PhysAddr, VirtAddr,
+    structures::paging::{PageSize, PhysFrame, Size4KiB, frame::PhysFrameRange},
 };
+use x509_cert::{Certificate, der::Decode};
 use zerocopy::{FromBytes, FromZeros, IntoBytes};
 
 // For now, we do not validate large kernel modules due to the VTL1's memory size limitation.
@@ -37,6 +37,7 @@ const MODULE_VALIDATION_MAX_SIZE: usize = 64 * 1024 * 1024;
 /// HEKI handlers for individual VTL call entry points.
 impl<P: Vtl0Gate> Heki<P> {
     /// HEKI handler for locking VTL0's control registers
+    #[lock_annotations::mhp("heki")]
     pub fn lock_regs(&self) -> Result<i64, VsmError> {
         self.gate.lock_control_registers()?;
         Ok(0)
@@ -44,6 +45,7 @@ impl<P: Vtl0Gate> Heki<P> {
 
     /// HEKI handler for protecting certain memory ranges (e.g., kernel text, data, heap).
     /// `pa` and `nranges` specify a memory area containing the information about the memory ranges to protect.
+    #[lock_annotations::mhp("heki")]
     pub fn protect_memory(&self, pa: u64, nranges: u64) -> Result<i64, VsmError> {
         if PhysAddr::try_new(pa)
             .ok()
@@ -104,6 +106,7 @@ impl<P: Vtl0Gate> Heki<P> {
 
     /// HEKI handler for loading kernel data (e.g., certificates, blocklist, kernel symbols) into VTL1.
     /// `pa` and `nranges` specify memory areas containing the information about the memory ranges to load.
+    #[lock_annotations::mhp("heki")]
     pub fn load_kdata(&self, pa: u64, nranges: u64) -> Result<i64, VsmError> {
         if PhysAddr::try_new(pa)
             .ok()
@@ -244,6 +247,7 @@ impl<P: Vtl0Gate> Heki<P> {
     /// `pa` and `nranges` specify a memory area containing the information about the kernel module to validate or protect.
     /// `flags` controls the validation process (unused for now).
     /// This function returns a unique `token` to VTL0, which is used to identify the module in subsequent calls.
+    #[lock_annotations::mhp("heki")]
     pub fn validate_guest_module(
         &self,
         pa: u64,
@@ -393,6 +397,7 @@ impl<P: Vtl0Gate> Heki<P> {
     /// freeing the memory ranges that were used only for initialization and
     /// write-protecting the memory ranges that should be read-only after initialization.
     /// `token` is the unique identifier for the module.
+    #[lock_annotations::mhp("heki")]
     pub fn free_guest_module_init(&self, token: i64) -> Result<i64, VsmError> {
         log::debug!("HEKI: Free kernel module's init (token: {token})");
 
@@ -436,6 +441,7 @@ impl<P: Vtl0Gate> Heki<P> {
 
     /// HEKI handler for supporting the unloading of a guest kernel module.
     /// `token` is the unique identifier for the module.
+    #[lock_annotations::mhp("heki")]
     pub fn unload_guest_module(&self, token: i64) -> Result<i64, VsmError> {
         log::debug!("HEKI: Unload kernel module (token: {token})");
 
@@ -459,6 +465,7 @@ impl<P: Vtl0Gate> Heki<P> {
 
     /// HEKI handler for copying secondary key
     #[allow(clippy::unnecessary_wraps)]
+    #[lock_annotations::mhp("heki")]
     pub fn copy_secondary_key(&self, _pa: u64, _nranges: u64) -> Result<i64, VsmError> {
         log::debug!("HEKI: Copy secondary key");
         // TODO: copy secondary key
@@ -469,6 +476,7 @@ impl<P: Vtl0Gate> Heki<P> {
     /// This function protects the kexec kernel blob (PE) only if it has a valid signature.
     /// Note: this function does not make kexec kernel pages executable, which should be done by
     /// another VTL1 method that can intercept the kexec/reset signal.
+    #[lock_annotations::mhp("heki")]
     pub fn kexec_validate(&self, pa: u64, nranges: u64, crash: u64) -> Result<i64, VsmError> {
         log::debug!("HEKI: Validate kexec pa {pa:#x} nranges {nranges} crash {crash}");
 
@@ -597,6 +605,7 @@ impl<P: Vtl0Gate> Heki<P> {
     /// HEKI handler for patching kernel or module text. VTL0 kernel calls this function to patch certain kernel or module
     /// text region (which it does not have a permission to modify). It passes `HekiPatch` structure which can be stored
     /// within one or across two likely non-contiguous physical pages.
+    #[lock_annotations::mhp("heki")]
     pub fn patch_text<W: Vtl0PrivilegedWrite>(
         &self,
         writer: &W,
@@ -616,6 +625,7 @@ impl<P: Vtl0Gate> Heki<P> {
         Ok(0)
     }
 
+    #[lock_annotations::mhp("heki")]
     pub fn allocate_ringbuffer_memory(&self, phys_addr: u64, size: u64) -> Result<i64, VsmError> {
         if self.gate.end_of_boot_reached() {
             return Err(VsmError::OperationAfterEndOfBoot("ring buffer allocation"));
