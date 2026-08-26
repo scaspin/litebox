@@ -1,0 +1,76 @@
+name: Antelope
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - workflows
+
+permissions:
+  contents: read
+
+concurrency:
+  group: antelope-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Antelope LiteBox
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out LiteBox
+        uses: actions/checkout@v6
+
+      - name: Check out Antelope
+        uses: actions/checkout@v6
+        with:
+          repository: microsoft/antelope
+          ref: main
+          path: .tools/antelope
+
+      - name: Install Antelope Rust toolchain
+        shell: bash
+        run: |
+          TOOLCHAIN="$(awk -F'"' '/channel/{print $2}' \
+            .tools/antelope/antelope/rust-toolchain.toml)"
+
+          echo "ANTELOPE_TOOLCHAIN=$TOOLCHAIN" >> "$GITHUB_ENV"
+
+          rustup toolchain install "$TOOLCHAIN" \
+            --profile minimal \
+            --no-self-update \
+            --component rustc-dev,rust-src,llvm-tools-preview
+
+      - name: Build and install Antelope
+        shell: bash
+        run: |
+          cargo +"$ANTELOPE_TOOLCHAIN" install \
+            --locked \
+            --path .tools/antelope/antelope \
+            --root "$RUNNER_TEMP/antelope-install"
+
+          echo "$RUNNER_TEMP/antelope-install/bin" >> "$GITHUB_PATH"
+
+      - name: Run Antelope
+        shell: bash
+        run: |
+          antelope litebox \
+            --cross-crate \
+            --format json \
+            --output antelope-results.json \
+            --error-on never \
+            --stats \
+            --quiet \
+            -- \
+            --locked
+
+      - name: Upload Antelope results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: antelope-results
+          path: antelope-results.json
+          if-no-files-found: warn
+          retention-days: 14
