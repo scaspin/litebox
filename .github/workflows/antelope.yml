@@ -29,6 +29,8 @@ jobs:
           repository: microsoft/antelope
           ref: main
           path: .tools/antelope
+          token: ${{ secrets.ANTELOPE_TOKEN }}
+          persist-credentials: false
 
       - name: Install Antelope Rust toolchain
         shell: bash
