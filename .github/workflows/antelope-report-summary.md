@@ -5,7 +5,7 @@ on:
     workflows: ["Antelope"]
     types: [completed]
     branches: [setup-workflows]
-if: github.event.workflow_run.conclusion == 'success'
+if: always()
 engine: copilot
 permissions:
   actions: read
@@ -16,6 +16,7 @@ tools:
 checkout: false
 steps:
   - name: Download Antelope results
+    if: github.event.workflow_run.conclusion == 'success'
     uses: actions/download-artifact@v8
     with:
       name: antelope-results
@@ -24,6 +25,7 @@ steps:
       run-id: ${{ github.event.workflow_run.id }}
       github-token: ${{ secrets.GITHUB_TOKEN }}
   - name: List downloaded results
+    if: github.event.workflow_run.conclusion == 'success'
     env:
       RESULTS_PATH: ${{ github.workspace }}/antelope-results
     run: find "$RESULTS_PATH" -type f -ls
@@ -48,6 +50,27 @@ max-daily-ai-credits: -1
 
 # Summarize Antelope results
 
+Always write a Markdown report to
+`/tmp/gh-aw/agent/antelope-report-summary.md` and call `upload_artifact` exactly
+once for that file, using `antelope-report-summary` as the artifact name.
+
+First inspect the upstream workflow:
+
+- Workflow: `Antelope`
+- Run ID: `${{ github.event.workflow_run.id }}`
+- Conclusion: `${{ github.event.workflow_run.conclusion }}`
+- Branch: `setup-workflows`
+- Commit SHA: `${{ github.event.workflow_run.head_sha }}`
+- Run URL: `${{ github.event.workflow_run.html_url }}`
+
+If the conclusion is not `success`, begin the report with
+`## Antelope workflow failure`. Include the workflow name, run ID, conclusion,
+branch, commit SHA, and run URL. Explain that the Antelope results artifact may
+be unavailable because the upstream workflow failed. Do not call `missing_data`
+solely because the upstream workflow failed.
+
+If the conclusion is `success`, summarize the JSON artifact as follows.
+
 The completed Antelope workflow produced an artifact under
 `${{ github.workspace }}/antelope-results/` (the current working directory,
 subfolder `antelope-results/`).
@@ -64,10 +87,7 @@ subfolder `antelope-results/`).
   details are similar.
 7. Note malformed entries, missing fields, and findings without a `kind` in a
   separate section.
-8. Write a clear, compact Markdown report to
-   `/tmp/gh-aw/agent/antelope-report-summary.md`.
-9. Call `upload_artifact` exactly once for that file, using
-   `antelope-report-summary` as the artifact name.
+8. Write a clear, compact Markdown report.
 
 If the artifact is missing, empty, or invalid JSON, call `missing_data` with the
 exact path and stop. Do not modify repository content or create issues, pull
