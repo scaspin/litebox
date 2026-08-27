@@ -12,7 +12,7 @@ permissions:
   copilot-requests: write
 tools:
   edit:
-  bash: ["find", "cat"]
+  bash: ["find", "cat", "ls", "wc", "head", "grep", "jq", "python3"]
 checkout: false
 steps:
   - name: Download Antelope results
@@ -43,7 +43,7 @@ safe-outputs:
   report-failure-as-issue: false
   report-failed-jobs: false
 timeout-minutes: 10
-max-turns: 20
+max-turns: 30
 max-ai-credits: 500
 max-daily-ai-credits: -1
 ---
@@ -53,6 +53,15 @@ max-daily-ai-credits: -1
 Always write a Markdown report to
 `/tmp/gh-aw/agent/antelope-report-summary.md` and call `upload_artifact` exactly
 once for that file, using `antelope-report-summary` as the artifact name.
+
+**Tool constraints:** only `find`, `cat`, `ls`, `wc`, `head`, `grep`, `jq`, and
+`python3` are available via bash. If a command is denied, do not retry it or
+try to diagnose the sandbox—fall back to reading the file with `cat` and
+analyzing its contents yourself. Prefer reading the JSON once with `cat` and
+reasoning over it directly rather than issuing many small shell commands.
+Budget your turns: you have a hard limit, so plan to produce the report within
+a handful of tool calls. Write the report directly to
+`/tmp/gh-aw/agent/antelope-report-summary.md`; do not copy the input JSON.
 
 First inspect the upstream workflow:
 
