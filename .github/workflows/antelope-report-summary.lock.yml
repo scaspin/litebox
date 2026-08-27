@@ -69,10 +69,10 @@ run-name: "Summarize Antelope results"
 jobs:
   activation:
     needs: pre_activation
-    # zizmor: ignore[dangerous-triggers] - workflow_run trigger is secured with role and fork validation
+    # zizmor: ignore[dangerous-triggers] - workflow_run trigger is secured with role and same-repo validation
     if: >
       (needs.pre_activation.outputs.activated == 'true' && (always())) && (github.event_name != 'workflow_run' ||
-      github.event.workflow_run.repository.id == github.repository_id && (!(github.event.workflow_run.repository.fork)))
+      github.event.workflow_run.repository.id == github.repository_id)
     runs-on: ubuntu-slim
     permissions:
       actions: read
