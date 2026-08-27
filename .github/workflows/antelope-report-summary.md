@@ -12,7 +12,7 @@ permissions:
   copilot-requests: write
 tools:
   edit:
-  bash: ["find", "cat", "ls", "wc", "head", "grep", "jq"]
+  bash: ["find", "cat", "ls", "wc", "head", "grep"]
 checkout: false
 steps:
   - name: Download Antelope results
@@ -43,25 +43,37 @@ safe-outputs:
   report-failure-as-issue: false
   report-failed-jobs: false
 timeout-minutes: 10
-max-turns: 30
+max-turns: 15
 max-ai-credits: 500
 max-daily-ai-credits: -1
 ---
 
 # Summarize Antelope results
 
-Always write a Markdown report to
-`/tmp/gh-aw/agent/antelope-report-summary.md` and call `upload_artifact` exactly
-once for that file, using `antelope-report-summary` as the artifact name.
+Write the Markdown report to the absolute path
+`/tmp/gh-aw/agent/antelope-report-summary.md`, then call `upload_artifact`
+exactly once with:
 
-**Tool constraints:** only `find`, `cat`, `ls`, `wc`, `head`, `grep`, and `jq`
-are available via bash. If a command is denied, do not retry it or try to
-diagnose the sandbox—fall back to reading the file with `cat` and analyzing its
-contents yourself. Prefer reading the JSON once with `cat` and reasoning over
-it directly rather than issuing many small shell commands. Budget your turns:
-you have a hard limit, so plan to produce the report within a handful of tool
-calls. Write the report directly to
-`/tmp/gh-aw/agent/antelope-report-summary.md`; do not copy the input JSON.
+- `path`: `/tmp/gh-aw/agent/antelope-report-summary.md` (absolute — never a
+  bare filename, never a relative path)
+- `name`: `antelope-report-summary`
+
+Verify the file exists with `cat` before calling `upload_artifact`.
+
+Draft the full report and write it to disk as early as possible in the
+session, before any optional refinement steps, so the file exists even if
+turns or credits run out before you call `upload_artifact`. Only call
+`upload_artifact` once, at the end, per the `max-uploads: 1` limit below.
+
+**Tool constraints:** only `find`, `cat`, `ls`, `wc`, `head`, and `grep` are
+available via bash. `jq`, `python3`, `node`, `awk`, and `perl` are NOT
+available — do not attempt them. Read the JSON once with `cat` and analyze it
+yourself rather than issuing many small shell commands. If any command is
+denied, do NOT retry it, do NOT test its version, and do NOT investigate the
+sandbox — continue with `cat` and produce the report. You have a hard turn
+limit; plan to produce the report within a handful of tool calls. Write the
+report directly to `/tmp/gh-aw/agent/antelope-report-summary.md`; do not copy
+the input JSON.
 
 First inspect the upstream workflow:
 
