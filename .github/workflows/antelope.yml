@@ -63,7 +63,7 @@ jobs:
         run: |
           antelope \
             --cross-crate \
-            --lock-spec .antelope/litebox.spec \
+            --lock-spec .config/.antelope/litebox.spec \
             --log \
             --format json \
             --output antelope-results.json \
