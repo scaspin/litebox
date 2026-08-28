@@ -50,8 +50,8 @@ max-daily-ai-credits: -1
 
 The artifact is at `${{ github.workspace }}/antelope-results/antelope-results.json`.
 
-1. Use `grep -n '"kind": "deadlock"' <file> | head -1` to locate the FIRST
-   finding whose `kind` is `deadlock`.
+1. Use `grep -n '"kind": "self-deadlock"' <file> | head -1` to locate the FIRST
+   finding whose `kind` is `self-deadlock`.
 2. Use `head`/`grep` with line numbers to read only that finding's JSON object
    (roughly 20 lines around the match). Do NOT `cat` the whole file.
 3. Write a short Markdown report (under 30 lines) to
@@ -74,5 +74,5 @@ available. `jq`, `awk`, `sed`, `python3`, and `node` are NOT available — do no
 attempt them, and never retry a denied command. Budget: write the report file
 within your first few tool calls, then upload.
 
-If no `deadlock` finding exists, write a report saying so and upload it anyway.
+If no `self-deadlock` finding exists, write a report saying so and upload it anyway.
 If the artifact is missing or empty, call `missing_data` with the exact path and stop.
